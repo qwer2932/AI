@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频访问测试</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success { background: #d4edda; border-color: #c3e6cb; }
+        .error { background: #f8d7da; border-color: #f5c6cb; }
+        .info { background: #d1ecf1; border-color: #bee5eb; }
+        video { 
+            width: 100%; 
+            max-width: 800px; 
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .status { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>视频访问测试页面</h1>
+        
+        <div class="test-section info">
+            <h3>测试信息</h3>
+            <p><strong>当前访问地址:</strong> <span id="current-url"></span></p>
+            <p><strong>用户代理:</strong> <span id="user-agent"></span></p>
+            <p><strong>测试时间:</strong> <span id="test-time"></span></p>
+        </div>
+        
+        <div class="test-section">
+            <h3>网络连接测试</h3>
+            <button onclick="testConnection()">测试连接</button>
+            <div id="connection-status" class="status">等待测试...</div>
+            <div id="connection-log" class="log"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>API访问测试</h3>
+            <button onclick="testAPI()">测试API</button>
+            <div id="api-status" class="status">等待测试...</div>
+            <div id="api-log" class="log"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>视频文件测试</h3>
+            <button onclick="testVideo()">测试视频</button>
+            <div id="video-status" class="status">等待测试...</div>
+            <div id="video-log" class="log"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>视频播放测试</h3>
+            <video id="test-video" controls>
+                <source id="video-source" src="" type="video/mp4">
+                您的浏览器不支持视频播放。
+            </video>
+            <div id="video-player-status" class="status">等待加载视频...</div>
+            <div id="video-player-log" class="log"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>完整测试</h3>
+            <button onclick="runFullTest()">运行完整测试</button>
+            <div id="full-test-status" class="status">等待测试...</div>
+            <div id="full-test-log" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        // 初始化页面信息
+        document.getElementById('current-url').textContent = window.location.href;
+        document.getElementById('user-agent').textContent = navigator.userAgent;
+        document.getElementById('test-time').textContent = new Date().toLocaleString();
+        
+        function log(elementId, message) {
+            const logElement = document.getElementById(elementId);
+            const time = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${time}] ${message}<br>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function setStatus(elementId, message, isSuccess = null) {
+            const statusElement = document.getElementById(elementId);
+            statusElement.textContent = message;
+            statusElement.className = 'status';
+            if (isSuccess === true) {
+                statusElement.classList.add('success');
+            } else if (isSuccess === false) {
+                statusElement.classList.add('error');
+            }
+        }
+        
+        async function testConnection() {
+            setStatus('connection-status', '测试中...');
+            log('connection-log', '开始测试网络连接...');
+            
+            try {
+                const response = await fetch('/', { method: 'HEAD' });
+                if (response.ok) {
+                    setStatus('connection-status', '连接成功', true);
+                    log('connection-log', `连接成功 - 状态码: ${response.status}`);
+                } else {
+                    setStatus('connection-status', '连接失败', false);
+                    log('connection-log', `连接失败 - 状态码: ${response.status}`);
+                }
+            } catch (error) {
+                setStatus('connection-status', '连接异常', false);
+                log('connection-log', `连接异常: ${error.message}`);
+            }
+        }
+        
+        async function testAPI() {
+            setStatus('api-status', '测试中...');
+            log('api-log', '开始测试API访问...');
+            
+            try {
+                const response = await fetch('/api/history');
+                if (response.ok) {
+                    setStatus('api-status', 'API访问成功', true);
+                    log('api-log', `API访问成功 - 状态码: ${response.status}`);
+                    
+                    const data = await response.json();
+                    log('api-log', `API返回数据: ${JSON.stringify(data).substring(0, 100)}...`);
+                } else {
+                    setStatus('api-status', 'API访问失败', false);
+                    log('api-log', `API访问失败 - 状态码: ${response.status}`);
+                }
+            } catch (error) {
+                setStatus('api-status', 'API访问异常', false);
+                log('api-log', `API访问异常: ${error.message}`);
+            }
+        }
+        
+        async function testVideo() {
+            setStatus('video-status', '测试中...');
+            log('video-log', '开始测试视频文件访问...');
+            
+            // 获取一个测试视频文件
+            const testVideoUrl = '/api/video/results/02ef56c0-c1e9-4d27-a190-f0236c6c8373_tracked.mp4';
+            
+            try {
+                const response = await fetch(testVideoUrl, { method: 'HEAD' });
+                if (response.ok) {
+                    setStatus('video-status', '视频文件访问成功', true);
+                    log('video-log', `视频文件访问成功 - 状态码: ${response.status}`);
+                    log('video-log', `Content-Type: ${response.headers.get('Content-Type')}`);
+                    log('video-log', `Content-Length: ${response.headers.get('Content-Length')}`);
+                    
+                    // 设置视频源
+                    document.getElementById('video-source').src = testVideoUrl;
+                    document.getElementById('test-video').load();
+                } else {
+                    setStatus('video-status', '视频文件访问失败', false);
+                    log('video-log', `视频文件访问失败 - 状态码: ${response.status}`);
+                }
+            } catch (error) {
+                setStatus('video-status', '视频文件访问异常', false);
+                log('video-log', `视频文件访问异常: ${error.message}`);
+            }
+        }
+        
+        function testVideoPlayer() {
+            const video = document.getElementById('test-video');
+            const logElement = document.getElementById('video-player-log');
+            
+            video.addEventListener('loadstart', () => {
+                log('video-player-log', '视频开始加载...');
+            });
+            
+            video.addEventListener('loadeddata', () => {
+                log('video-player-log', '视频数据加载完成');
+                setStatus('video-player-status', '视频可以播放', true);
+            });
+            
+            video.addEventListener('canplay', () => {
+                log('video-player-log', '视频可以开始播放');
+            });
+            
+            video.addEventListener('error', (e) => {
+                log('video-player-log', `视频播放错误: ${e.message || '未知错误'}`);
+                setStatus('video-player-status', '视频播放失败', false);
+            });
+            
+            video.addEventListener('play', () => {
+                log('video-player-log', '视频开始播放');
+            });
+        }
+        
+        async function runFullTest() {
+            setStatus('full-test-status', '运行完整测试...');
+            log('full-test-log', '开始运行完整测试...');
+            
+            // 清空所有状态
+            document.getElementById('connection-status').className = 'status';
+            document.getElementById('api-status').className = 'status';
+            document.getElementById('video-status').className = 'status';
+            document.getElementById('video-player-status').className = 'status';
+            
+            // 依次运行测试
+            await testConnection();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await testAPI();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await testVideo();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // 检查所有测试结果
+            const connectionOk = document.getElementById('connection-status').classList.contains('success');
+            const apiOk = document.getElementById('api-status').classList.contains('success');
+            const videoOk = document.getElementById('video-status').classList.contains('success');
+            
+            if (connectionOk && apiOk && videoOk) {
+                setStatus('full-test-status', '所有测试通过', true);
+                log('full-test-log', '所有测试都通过了！视频应该可以正常访问。');
+            } else {
+                setStatus('full-test-status', '部分测试失败', false);
+                log('full-test-log', '部分测试失败，请检查上述错误信息。');
+            }
+        }
+        
+        // 初始化视频播放器测试
+        testVideoPlayer();
+        
+        // 页面加载完成后自动运行完整测试
+        window.addEventListener('load', () => {
+            setTimeout(runFullTest, 1000);
+        });
+    </script>
+</body>
+</html>
+

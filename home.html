@@ -1,0 +1,2411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI视频追踪分析系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script>
+        // 备用Chart.js加载
+        if (typeof Chart === 'undefined') {
+            console.log('尝试加载备用Chart.js...');
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.8/chart.umd.min.js';
+            script.onload = function() {
+                console.log('备用Chart.js加载成功');
+            };
+            script.onerror = function() {
+                console.error('备用Chart.js加载失败');
+            };
+            document.head.appendChild(script);
+        }
+    </script>
+    <style>
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #4299e1;
+            background-color: #ebf8ff;
+        }
+        .upload-area.dragover {
+            border-color: #3182ce;
+            background-color: #bee3f8;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+        
+        /* 自定义滚动条样式 */
+        .history-scroll-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .history-scroll-container::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+        
+        .history-scroll-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        
+        .history-scroll-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        /* 历史记录卡片悬停效果 */
+        .history-card {
+            transition: all 0.3s ease;
+        }
+        
+        .history-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* 侧边栏样式 */
+        .sidebar-function-btn {
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar-function-btn:hover {
+            transform: translateX(4px);
+        }
+        
+        .sidebar-function-btn.active {
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+        
+        /* 全屏布局 */
+        .main-content {
+            height: 100vh;
+        }
+        
+        .sidebar {
+            height: 100vh;
+        }
+        
+        .main-content-area {
+            height: 100vh;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 1200px) {
+            .sidebar {
+                width: 240px;
+            }
+        }
+        
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 200px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+                height: auto;
+            }
+            
+            .sidebar {
+                width: 100%;
+                order: 2;
+                height: auto;
+            }
+            
+            .main-content-area {
+                order: 1;
+                height: auto;
+            }
+            
+            .sidebar .space-y-6 > div {
+                margin-bottom: 1rem;
+            }
+        }
+        
+        /* 侧边栏卡片悬停效果 */
+        .sidebar-card {
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* 上传区域动画效果 */
+        .upload-area {
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .upload-area:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border-color: #3b82f6;
+        }
+        
+        .upload-area::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.1), transparent);
+            transition: left 0.5s;
+        }
+        
+        .upload-area:hover::before {
+            left: 100%;
+        }
+        
+        .upload-area.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+            transform: scale(1.02);
+        }
+        
+        /* 脉冲动画 */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .upload-icon {
+            animation: pulse 2s infinite;
+        }
+        
+        /* 头部样式增强 */
+        .header-enhanced {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-bottom: 3px solid #e2e8f0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header-enhanced::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4, #10b981);
+            background-size: 200% 100%;
+            animation: gradient-shift 3s ease-in-out infinite;
+        }
+        
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        
+        .header-title {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .header-logo {
+            transition: transform 0.3s ease;
+        }
+        
+        .header-logo:hover {
+            transform: scale(1.05) rotate(5deg);
+        }
+        
+        .header-status {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            font-weight: 500;
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .header-status:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        }
+        
+        /* 朴素进度条效果 */
+        .progress-bar-gradient {
+            background: linear-gradient(90deg, 
+                #3b82f6 0%, 
+                #1d4ed8 50%, 
+                #1e40af 100%);
+        }
+        
+        .progress-bar-glow {
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+        }
+        
+        .progress-container {
+            position: relative;
+            overflow: hidden;
+        }
+        
+    </style>
+</head>
+<body class="bg-gray-100 h-screen overflow-hidden flex flex-col">
+    <!-- 头部标题 -->
+    <header class="header-enhanced flex-shrink-0">
+        <div class="w-full px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4 header-title">
+                    <!-- 公司Logo -->
+                    <div class="flex-shrink-0 header-logo">
+                        <svg width="48" height="48" viewBox="0 0 246.1 246.1" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <style>
+                                    .logo-st0 { fill: #fff; }
+                                    .logo-st1 { fill: #265ece; }
+                                    .logo-st2 { fill: #c12156; }
+                                </style>
+                            </defs>
+                            <rect class="logo-st0" x="100.4" y="101.9" width="51.5" height="51.5" rx="7.1" ry="7.1"/>
+                            <path class="logo-st2" d="M133,69.6c-.9-1.4-.8-1.3-1.5-2.2s-1.1-1.6-1.8-2.2c-.9-1-2.2-1.6-3.6-1.6s-2.6.5-3.6,1.6c-.7.7-1.3,1.6-1.7,2.2-.4.6-.6.9-1.5,2.3-1.9,3-22,34.4-24.4,38.3-4.7,7.5-6.6,10.4-8.5,14.2-1.7,3.4-1.7,7.4,0,10.8,1.7,3.4,3.7,6.6,8.6,14.3.1.2,18.9,29.7,24.3,38.2.9,1.4.8,1.3,1.5,2.2s1.1,1.6,1.8,2.2c.9,1,2.2,1.6,3.6,1.6s2.6-.5,3.6-1.6c.7-.7,1.3-1.6,1.7-2.2.4-.6.6-.9,1.5-2.3,1.9-3,22-34.4,24.4-38.3,4.7-7.5,6.6-10.4,8.5-14.2,1.7-3.4,1.7-7.4,0-10.8-1.7-3.4-3.7-6.6-8.6-14.3-.1-.2-18.9-29.7-24.3-38.2ZM150.7,146c0,1.5-.7,2.9-1.7,4-1.1,1.2-2.7,1.9-4.3,2h-37.1c-1.5,0-3-.7-4.1-1.8-1.2-1.1-1.9-2.7-1.9-4.3v-37.1c0-1.6.8-3.2,2-4.3,1.1-1,2.5-1.6,4-1.7h37.1c1.4,0,2.8.6,3.9,1.6,1.3,1.1,2.1,2.8,2.2,4.5v37.1Z"/>
+                            <g>
+                                <path class="logo-st1" d="M145.4,106.3c-.6-.2-1.3-.2-2-.2-11.9,0-23.9,0-35.8,0-1.1,0-2.2.8-2.6,1.8-.2.4-.3.9-.3,1.4,0,12.2,0,24.3,0,36.5,0,1.4,1.1,2.8,2.5,3.1.4,0,.9,0,1.3,0h35.8c.9,0,1.8-.4,2.4-1,.5-.6.8-1.4.8-2.2,0-12.2,0-24.3,0-36.5,0-1.3-.9-2.5-2.1-2.9ZM121.4,133.5c0,1.8-1,3.4-2.4,4.5-1.2.9-2.7,1.4-4.2,1.4-.7,0-1.4,0-2.1,0,0-1.1,0-2.1,0-3.2.7,0,1.4,0,2.1,0,1.1,0,2.2-.6,2.7-1.5.4-.6.3-1.3.3-2-.7,0-1.4,0-2.1,0-.8,0-1.6,0-2.4-.2-1.5-.5-2.6-2-2.6-3.6,0-3.1,0-6.1,0-9.2,0-1,.4-2,1.1-2.8.7-.8,1.8-1.2,2.8-1.2,2.3,0,4.5,0,6.8,0,0,6,0,11.9,0,17.9ZM141.2,139.4c-5.8,0-11.6,0-17.4,0,0-1.1,0-2.1,0-3.2,5.8,0,11.6,0,17.4,0,0,1.1,0,2.1,0,3.2ZM141.6,132.7c-1.2,0-2.4,0-3.6,0,0-4.2,0-8.5,0-12.7,0-.6-.6-1.2-1.2-1.2-.8,0-1.6,0-2.4,0,0,4.6,0,9.3,0,13.9-1.2,0-2.4,0-3.6,0,0-4.6,0-9.3,0-13.9-1.2,0-2.4,0-3.6,0,0,4.6,0,9.3,0,13.9h-3.6c0-5.7,0-11.4,0-17.1,4.6,0,9.3,0,13.9,0,1,0,2,.4,2.8,1.1.8.7,1.2,1.8,1.2,2.8,0,4.4,0,8.7,0,13.1Z"/>
+                                <path class="logo-st1" d="M114.3,120c0,2.8,0,5.5,0,8.3,0,.6.5,1.2,1.1,1.2.8,0,1.6,0,2.4,0,0-3.6,0-7.1,0-10.7-.8,0-1.6,0-2.4,0-.6,0-1.2.6-1.1,1.2Z"/>
+                                <path class="logo-st1" d="M56.3,132.3c.8,0,2.6,0,3.4,0h21.4c.2,0,.3,0,.4,0,.1,0,.2-.2.2-.4,0,0,0-.1,0-.2-.4-.6-2.7-4.2-2.8-4.4-.1-.2-.3-.5-.5-.7-.3-.3-.5-.5-.8-.6-.3-.1-.8-.2-1.5-.3-.4,0-1,0-1.5,0-1.9,0-8.6,0-10.3,0s-.4,0-.6,0c-.7,0-1.1-.5-1.2-1.1,0-.2,0-.5,0-.6,0-.3,0-.7,0-1,1.8-35.5,31.1-63.7,67.1-63.7s59.4,22.9,65.7,53.4h3.4c-.9-4.5-2.3-8.9-4-13.1-11-26.9-37.4-45.9-68.3-45.9s-48.5,13.2-61.7,33.3c-7,10.8-11.2,23.6-11.6,37.3,0,.8,0,3,0,4.4,0,1,.1,2.1.9,2.9.7.6,1.5.7,2.4.8Z"/>
+                                <path class="logo-st1" d="M199.3,126.3c0-1-.1-2.1-.9-2.9-.7-.6-1.5-.7-2.4-.8-.8,0-2.6,0-3.4,0h-21.4c-.2,0-.3,0-.4,0-.1,0-.2.2-.2.4,0,0,0,.1,0,.2.4.6,2.7,4.2,2.8,4.4.1.2.3.5.5.7.3.3.5.5.8.6.3.1.8.2,1.5.3.4,0,1,0,1.5,0,1.9,0,8.6,0,10.3,0s.4,0,.6,0c.7,0,1.1.5,1.2,1.1,0,.2,0,.5,0,.6,0,.3,0,.7,0,1-1.8,35.5-31.1,63.7-67.1,63.7s-59.4-22.9-65.7-53.4h-3.4c.9,4.5,2.3,8.9,4,13.1,11,26.9,37.4,45.9,68.3,45.9s48.5-13.2,61.7-33.3c7-10.8,11.2-23.6,11.6-37.3,0-.8,0-3,0-4.4Z"/>
+                            </g>
+                        </svg>
+                    </div>
+                    <!-- 系统标题 -->
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">AI视频追踪分析系统</h1>
+                        <p class="text-sm text-gray-600 mt-1">智能行为分析与数据可视化平台</p>
+                    </div>
+                </div>
+                <div class="header-status">
+                    <span id="status-indicator">就绪</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要内容 -->
+    <main class="flex flex-1 overflow-hidden">
+        <!-- 侧边栏 -->
+        <div class="w-72 flex-shrink-0 sidebar bg-gray-50 border-r border-gray-200">
+            <div class="h-full overflow-y-auto p-6 space-y-6">
+                <!-- 功能导航 -->
+                <div class="bg-white rounded-lg shadow-sm p-6 sidebar-card">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                        识别功能
+                    </h3>
+                    <div class="space-y-3">
+                        <!-- 标准化操作矫正 -->
+                        <button id="standard-operation-btn" class="w-full text-left px-4 py-3 rounded-lg border-2 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 transition-colors duration-200 flex items-center sidebar-function-btn active">
+                            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            </svg>
+                            <div>
+                                <div class="font-medium">标准化操作矫正</div>
+                                <div class="text-xs text-blue-600">当前功能</div>
+                            </div>
+                        </button>
+                        
+                        <!-- 质检识别 -->
+                        <button id="quality-inspection-btn" class="w-full text-left px-4 py-3 rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors duration-200 flex items-center sidebar-function-btn opacity-50 cursor-not-allowed">
+                            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <div>
+                                <div class="font-medium">质检识别</div>
+                                <div class="text-xs text-gray-500">开发中</div>
+                            </div>
+                        </button>
+                        
+                        <!-- PE穿戴识别 -->
+                        <button id="pe-wear-btn" class="w-full text-left px-4 py-3 rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors duration-200 flex items-center sidebar-function-btn opacity-50 cursor-not-allowed">
+                            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                            </svg>
+                            <div>
+                                <div class="font-medium">PE穿戴识别</div>
+                                <div class="text-xs text-gray-500">开发中</div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 历史记录 -->
+                <div class="bg-white rounded-lg shadow-sm p-6 sidebar-card">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        历史记录
+                    </h3>
+                    <button id="history-btn" class="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        查看历史记录
+                    </button>
+                    </div>
+                
+                </div>
+            </div>
+        
+        <!-- 主内容区域 -->
+        <div class="flex-1 min-w-0 main-content-area bg-white overflow-y-auto rounded-lg shadow-sm border border-gray-200 mx-4 mt-4" style="height: calc(100vh - 140px); margin-bottom: 32px;">
+            <div class="p-8">
+            
+        <!-- 上传区域 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    视频上传
+                </h2>
+            
+            <!-- 上传区域 -->
+            <div id="upload-area" class="upload-area border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer bg-white">
+                <div id="upload-content">
+                    <svg class="mx-auto h-12 w-12 text-gray-400 upload-icon" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <p class="mt-2 text-sm text-gray-600">点击或拖拽视频文件到此处</p>
+                    <p class="text-xs text-gray-500">支持 MP4, AVI, MOV 格式</p>
+                </div>
+                
+                <!-- 视频预览 -->
+                <div id="video-preview" class="hidden mt-4">
+                    <video id="preview-video" controls class="w-full max-w-md mx-auto rounded-lg"></video>
+                </div>
+            </div>
+            
+            <!-- 操作按钮区域 -->
+            <div id="button-section" class="hidden mt-6 flex justify-center space-x-4">
+                <button id="analyze-btn" class="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-lg hover:shadow-xl transition-all duration-200">
+                    <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    开始分析
+                </button>
+                <button id="clear-btn" class="px-8 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-medium shadow-lg hover:shadow-xl transition-all duration-200">
+                    <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    清除
+                </button>
+            </div>
+            
+            <input type="file" id="file-input" accept="video/*" class="hidden">
+        </div>
+
+        <!-- 分析进度 -->
+        <div id="progress-section" class="bg-white rounded-lg shadow-sm p-6 mb-8 hidden border border-gray-200">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                分析进度
+            </h2>
+            <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <span id="progress-text" class="text-sm text-gray-600">准备中...</span>
+                    <span id="progress-percent" class="text-sm font-medium text-blue-600">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-3 progress-container">
+                    <div id="progress-bar" class="h-3 rounded-full transition-all duration-300 progress-bar-gradient progress-bar-glow" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分析结果 -->
+        <div id="results-section" class="hidden">
+            <!-- 统计概览 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    分析结果概览
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="text-center">
+                        <div id="total-tracks" class="text-3xl font-bold text-blue-600">0</div>
+                        <div class="text-sm text-gray-600">追踪目标</div>
+                    </div>
+                    <div class="text-center">
+                        <div id="analyzed-tracks" class="text-3xl font-bold text-green-600">0</div>
+                        <div class="text-sm text-gray-600">已分析目标</div>
+                    </div>
+                    <div class="text-center">
+                        <div id="analysis-time" class="text-3xl font-bold text-purple-600">0s</div>
+                        <div class="text-sm text-gray-600">分析时长</div>
+                    </div>
+                    <div class="text-center">
+                        <div id="video-duration" class="text-3xl font-bold text-orange-600">0s</div>
+                        <div class="text-sm text-gray-600">视频时长</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 最长时间ID展示区域 -->
+            <div id="top-track-section" class="bg-white rounded-lg shadow-sm p-6 mb-8 hidden border border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 text-center">追踪时间最长的目标</h3>
+                <div id="top-track-card" class="max-w-2xl mx-auto">
+                    <!-- 最长时间ID卡片将在这里动态生成 -->
+                    </div>
+                </div>
+                
+            <!-- 详细分析结果表格（集成ID选择功能） -->
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">详细分析结果</h3>
+                    <p class="text-sm text-gray-600">点击行查看详细分析</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">追踪ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">总时间(帧)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">增值时间</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">非增值时间</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">步行时间</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">等待时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- 表格内容将在这里动态生成 -->
+                        </tbody>
+                    </table>
+                </div>
+                
+            </div>
+
+            <!-- 结果视频 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">处理后的视频</h3>
+                <div class="text-center">
+                    <video id="result-video" controls class="w-full max-w-4xl mx-auto rounded-lg"></video>
+                </div>
+            </div>
+        </div>
+
+        <!-- 历史记录区域 -->
+        <div id="history-section" class="hidden h-full">
+            <!-- 统计概览 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    历史统计概览
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="text-center">
+                        <div id="total-analyses" class="text-3xl font-bold text-blue-600">0</div>
+                        <div class="text-sm text-gray-600">总分析次数</div>
+                    </div>
+                    <div class="text-center">
+                        <div id="total-tracks-history" class="text-3xl font-bold text-green-600">0</div>
+                        <div class="text-sm text-gray-600">总追踪目标</div>
+                    </div>
+                    <div class="text-center">
+                        <div id="last-analysis-time" class="text-3xl font-bold text-purple-600">-</div>
+                        <div class="text-sm text-gray-600">最近分析</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 历史记录列表 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            分析历史记录
+                        </h3>
+                        <p class="text-sm text-gray-600 mt-1">每页显示10条记录，支持内部滚动</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button id="refresh-history-btn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 历史记录滚动容器 -->
+                <div class="border border-gray-200 rounded-lg bg-gray-50 p-4 mb-6 history-scroll-container" style="height: 500px; overflow-y: auto;">
+                    <div id="history-list" class="space-y-4">
+                        <!-- 历史记录将在这里动态生成 -->
+                    </div>
+                </div>
+                
+                <!-- 分页控件 -->
+                <div id="pagination-container" class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm text-gray-700">每页显示</span>
+                        <select id="per-page-select" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                            <option value="10">10条</option>
+                            <option value="20">20条</option>
+                            <option value="50">50条</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        <button id="prev-page-btn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                        </button>
+                        
+                        <div id="page-info" class="text-sm text-gray-700">
+                            第 <span id="current-page">1</span> 页，共 <span id="total-pages">1</span> 页
+                    </div>
+                    
+                        <button id="next-page-btn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <div class="text-sm text-gray-500">
+                        共 <span id="total-records">0</span> 条记录
+                    </div>
+                </div>
+                
+                <div id="history-loading" class="text-center py-8 hidden">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <p class="mt-2 text-gray-600">加载中...</p>
+                </div>
+                <div id="history-empty" class="text-center py-8 hidden">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <p class="mt-2 text-gray-600">暂无历史记录</p>
+                </div>
+            </div>
+            
+            <!-- 批量分析功能 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    批量分析功能
+                </h3>
+                <p class="text-sm text-gray-600 mb-4">选择多个历史记录进行批量分析，计算每个视频中出现时间最多的ID和线平衡率</p>
+                
+                <!-- 选择控制区域 -->
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-4">
+                            <button id="select-all-btn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm">
+                                全选
+                            </button>
+                            <button id="clear-selection-btn" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 text-sm">
+                                清空选择
+                            </button>
+                            <span id="selection-count" class="text-sm text-gray-600">已选择 0 条记录</span>
+                        </div>
+                        <button id="batch-analyze-btn" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 text-sm font-medium" disabled>
+                            开始批量分析
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 分析结果区域 -->
+                <div id="batch-analysis-results" class="hidden">
+                    <h4 class="text-md font-semibold text-gray-900 mb-4">分析结果</h4>
+                    <div id="batch-results-content" class="space-y-4">
+                        <!-- 分析结果将在这里显示 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 行为比例详情模态框 -->
+    <div id="behavior-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <!-- 模态框头部 -->
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900" id="modal-title">行为比例详情</h3>
+                    <button id="close-modal" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <!-- 模态框内容 -->
+                <div class="space-y-6">
+                    <!-- 柱状图区域 -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h4 class="text-md font-semibold text-gray-800 mb-4 text-center">行为分析图表</h4>
+                        <div class="chart-container bg-white rounded-lg p-4">
+                            <canvas id="modal-behavior-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- 比例显示区域 -->
+                    <div>
+                        <h4 class="text-md font-semibold text-gray-800 mb-4 text-center">行为比例详情</h4>
+                        <div id="modal-ratio-display" class="grid grid-cols-1 gap-6">
+                            <!-- 比例数据将在这里动态生成 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let currentAnalysisId = null;
+        let analysisInterval = null;
+        let behaviorChart = null;
+        let modalBehaviorChart = null;
+        let historyData = [];
+        let allTracks = [];
+        let selectedTrackId = null;
+        
+        // 分页相关变量
+        let currentPage = 1;
+        let perPage = 10;
+        let totalPages = 1;
+        let totalRecords = 0;
+        
+
+        // DOM元素
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const uploadContent = document.getElementById('upload-content');
+        const videoPreview = document.getElementById('video-preview');
+        const previewVideo = document.getElementById('preview-video');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const progressSection = document.getElementById('progress-section');
+        const resultsSection = document.getElementById('results-section');
+        const statusIndicator = document.getElementById('status-indicator');
+        const historyBtn = document.getElementById('history-btn');
+        const historySection = document.getElementById('history-section');
+        const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+        const historyList = document.getElementById('history-list');
+        
+        // 分页相关DOM元素
+        const perPageSelect = document.getElementById('per-page-select');
+        const prevPageBtn = document.getElementById('prev-page-btn');
+        const nextPageBtn = document.getElementById('next-page-btn');
+        const currentPageSpan = document.getElementById('current-page');
+        const totalPagesSpan = document.getElementById('total-pages');
+        const totalRecordsSpan = document.getElementById('total-records');
+        
+        // 侧边栏相关DOM元素
+        const standardOperationBtn = document.getElementById('standard-operation-btn');
+        const qualityInspectionBtn = document.getElementById('quality-inspection-btn');
+        const peWearBtn = document.getElementById('pe-wear-btn');
+        
+        // 新增的DOM元素
+        const behaviorModal = document.getElementById('behavior-modal');
+        const closeModal = document.getElementById('close-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBehaviorChartCanvas = document.getElementById('modal-behavior-chart');
+        const modalRatioDisplay = document.getElementById('modal-ratio-display');
+        const topTrackSection = document.getElementById('top-track-section');
+        
+        // 批量分析相关元素
+        const selectAllBtn = document.getElementById('select-all-btn');
+        const clearSelectionBtn = document.getElementById('clear-selection-btn');
+        const batchAnalyzeBtn = document.getElementById('batch-analyze-btn');
+        const selectionCount = document.getElementById('selection-count');
+        const batchAnalysisResults = document.getElementById('batch-analysis-results');
+        const batchResultsContent = document.getElementById('batch-results-content');
+        const topTrackCard = document.getElementById('top-track-card');
+        
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 检查Chart.js是否加载
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js 未正确加载');
+                alert('图表库加载失败，请刷新页面重试');
+                return;
+            }
+            
+            initializeEventListeners();
+            initializeScrollSupport();
+            // 确保页面加载时按钮状态正确
+            resetAnalysis();
+        });
+
+        function initializeEventListeners() {
+            console.log('初始化事件监听器...');
+            
+            // 检查关键DOM元素是否存在
+            if (!uploadArea) {
+                console.error('uploadArea 元素未找到');
+                return;
+            }
+            if (!analyzeBtn) {
+                console.error('analyzeBtn 元素未找到');
+                return;
+            }
+            if (!clearBtn) {
+                console.error('clearBtn 元素未找到');
+                return;
+            }
+            
+            // 文件上传
+            uploadArea.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // 拖拽上传
+            uploadArea.addEventListener('dragover', handleDragOver);
+            uploadArea.addEventListener('dragleave', handleDragLeave);
+            uploadArea.addEventListener('drop', handleDrop);
+            
+            // 按钮事件
+            analyzeBtn.addEventListener('click', startAnalysis);
+            clearBtn.addEventListener('click', clearUpload);
+            
+            if (historyBtn) historyBtn.addEventListener('click', toggleHistory);
+            if (refreshHistoryBtn) refreshHistoryBtn.addEventListener('click', loadHistory);
+            
+            // 分页相关事件监听器
+            if (perPageSelect) perPageSelect.addEventListener('change', handlePerPageChange);
+            if (prevPageBtn) prevPageBtn.addEventListener('click', goToPreviousPage);
+            if (nextPageBtn) nextPageBtn.addEventListener('click', goToNextPage);
+            
+            // 侧边栏功能按钮事件监听器
+            if (standardOperationBtn) standardOperationBtn.addEventListener('click', switchToStandardOperation);
+            if (qualityInspectionBtn) qualityInspectionBtn.addEventListener('click', switchToQualityInspection);
+            if (peWearBtn) peWearBtn.addEventListener('click', switchToPEWear);
+            
+            
+            // 模态框事件
+            if (closeModal) closeModal.addEventListener('click', closeBehaviorModal);
+            if (behaviorModal) {
+                behaviorModal.addEventListener('click', (e) => {
+                    if (e.target === behaviorModal) {
+                        closeBehaviorModal();
+                    }
+                });
+            }
+            
+            // 批量分析事件监听器
+            if (selectAllBtn) {
+                selectAllBtn.addEventListener('click', selectAllHistory);
+            }
+            
+            if (clearSelectionBtn) {
+                clearSelectionBtn.addEventListener('click', clearSelection);
+            }
+            
+            if (batchAnalyzeBtn) {
+                batchAnalyzeBtn.addEventListener('click', performBatchAnalysis);
+            }
+            
+            // 监听复选框变化
+            document.addEventListener('change', function(e) {
+                if (e.target.classList.contains('history-checkbox')) {
+                    updateSelectionCount();
+                }
+            });
+            
+            console.log('事件监听器初始化完成');
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                processFile(file);
+            }
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            uploadArea.classList.add('dragover');
+        }
+
+        function handleDragLeave(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function processFile(file) {
+            console.log('processFile 函数被调用，文件:', file);
+            
+            if (!file.type.startsWith('video/')) {
+                alert('请选择视频文件');
+                return;
+            }
+
+            const url = URL.createObjectURL(file);
+            previewVideo.src = url;
+            uploadContent.classList.add('hidden');
+            videoPreview.classList.remove('hidden');
+            
+            // 显示按钮区域
+            const buttonSection = document.getElementById('button-section');
+            buttonSection.classList.remove('hidden');
+            
+            updateStatus('视频已选择，点击开始分析');
+            console.log('文件处理完成，按钮区域已显示');
+        }
+
+        function clearUpload() {
+            fileInput.value = '';
+            previewVideo.src = '';
+            uploadContent.classList.remove('hidden');
+            videoPreview.classList.add('hidden');
+            
+            // 隐藏按钮区域
+            const buttonSection = document.getElementById('button-section');
+            buttonSection.classList.add('hidden');
+            
+            resultsSection.classList.add('hidden');
+            progressSection.classList.add('hidden');
+            
+            // 重置分析状态
+            resetAnalysis();
+            updateStatus('就绪');
+        }
+
+        async function startAnalysis() {
+            console.log('startAnalysis 函数被调用');
+            
+            if (!fileInput.files[0]) {
+                alert('请先选择视频文件');
+                return;
+            }
+
+            try {
+                console.log('开始分析流程...');
+                updateStatus('正在上传视频...');
+                analyzeBtn.disabled = true;
+                analyzeBtn.textContent = '分析中...';
+                console.log('开始分析 - 按钮状态已设置为禁用');
+                
+                // 显示进度区域
+                progressSection.classList.remove('hidden');
+                updateProgress(0, '正在上传视频...');
+
+                // 上传视频
+                const formData = new FormData();
+                formData.append('video', fileInput.files[0]);
+                
+                const uploadResponse = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!uploadResponse.ok) {
+                    throw new Error('视频上传失败');
+                }
+
+                const uploadResult = await uploadResponse.json();
+                currentAnalysisId = uploadResult.analysis_id;
+
+                // 开始分析
+                updateProgress(10, '开始分析...');
+                const analyzeResponse = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: uploadResult.filename,
+                        analysis_id: currentAnalysisId
+                    })
+                });
+
+                if (!analyzeResponse.ok) {
+                    throw new Error('分析启动失败');
+                }
+
+                // 开始轮询状态
+                startStatusPolling();
+
+            } catch (error) {
+                console.error('分析失败:', error);
+                alert('分析失败: ' + error.message);
+                resetAnalysis();
+            }
+        }
+
+        function startStatusPolling() {
+            if (analysisInterval) {
+                clearInterval(analysisInterval);
+            }
+
+            let pollCount = 0;
+            const maxPolls = 300; // 5分钟超时
+
+            analysisInterval = setInterval(async () => {
+                try {
+                    pollCount++;
+                    console.log(`状态轮询 ${pollCount}/${maxPolls}`);
+                    
+                    // 优先使用任务特定的状态API
+                    let response, status;
+                    if (currentAnalysisId) {
+                        try {
+                            response = await fetch(`/api/status/${currentAnalysisId}`);
+                            if (response.ok) {
+                                status = await response.json();
+                                console.log('任务状态:', status);
+                            } else {
+                                // 如果任务状态API失败，回退到全局状态
+                                response = await fetch('/api/status');
+                                status = await response.json();
+                                console.log('全局状态:', status);
+                            }
+                        } catch (taskError) {
+                            console.warn('任务状态API失败，使用全局状态:', taskError);
+                            response = await fetch('/api/status');
+                            status = await response.json();
+                            console.log('全局状态:', status);
+                        }
+                    } else {
+                        response = await fetch('/api/status');
+                        if (!response.ok) {
+                            throw new Error(`状态API响应错误: ${response.status}`);
+                        }
+                        status = await response.json();
+                        console.log('全局状态:', status);
+                    }
+
+                    if (status.status === 'completed') {
+                        console.log('分析完成，开始加载结果');
+                        clearInterval(analysisInterval);
+                        await loadResults();
+                    } else if (status.status === 'error') {
+                        console.error('分析过程中出现错误:', status.message);
+                        clearInterval(analysisInterval);
+                        alert('分析过程中出现错误: ' + (status.message || '未知错误'));
+                        resetAnalysis();
+                    } else if (pollCount >= maxPolls) {
+                        console.error('分析超时');
+                        clearInterval(analysisInterval);
+                        alert('分析超时，请重试');
+                        resetAnalysis();
+                    } else {
+                        // 更新进度
+                        const progress = status.progress || 0;
+                        const message = status.message || '分析中...';
+                        updateProgress(progress, message);
+                    }
+                } catch (error) {
+                    console.error('状态检查失败:', error);
+                    if (pollCount >= maxPolls) {
+                        clearInterval(analysisInterval);
+                        alert('状态检查失败，请重试: ' + error.message);
+                        resetAnalysis();
+                    }
+                }
+            }, 1000);
+        }
+
+        async function loadResults() {
+            if (!currentAnalysisId) {
+                console.error('loadResults: currentAnalysisId 为空');
+                return;
+            }
+
+            try {
+                updateProgress(90, '加载结果...');
+                console.log('loadResults: 开始加载结果，analysisId:', currentAnalysisId);
+                
+                const response = await fetch(`/api/result/${currentAnalysisId}`);
+                console.log('loadResults: API响应状态:', response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('loadResults: API响应错误:', response.status, errorText);
+                    throw new Error(`获取结果失败 (${response.status}): ${errorText}`);
+                }
+
+                const result = await response.json();
+                console.log('loadResults: 成功获取结果:', result);
+                
+                // 确保result包含analysis_id
+                if (!result.analysis_id) {
+                    result.analysis_id = currentAnalysisId;
+                }
+                
+                displayResults(result);
+                
+                updateProgress(100, '分析完成');
+                updateStatus('分析完成');
+                
+                // 分析完成后重置按钮状态，允许进行新的分析
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = '开始分析';
+                console.log('分析完成，按钮状态已重置，可以开始新的分析');
+
+            } catch (error) {
+                console.error('获取结果失败:', error);
+                alert('获取结果失败: ' + error.message);
+                resetAnalysis();
+            }
+        }
+
+        function displayResults(result) {
+            // 设置当前分析ID
+            currentAnalysisId = result.analysis_id;
+            console.log('displayResults: 设置currentAnalysisId为:', currentAnalysisId);
+            
+            // 更新统计信息
+            document.getElementById('total-tracks').textContent = result.total_tracks || 0;
+            document.getElementById('analyzed-tracks').textContent = result.tracked_ids ? result.tracked_ids.length : 0;
+            
+            const videoInfo = result.video_info || {};
+            const duration = videoInfo.duration || 0;
+            document.getElementById('analysis-time').textContent = duration.toFixed(1) + 's';
+            document.getElementById('video-duration').textContent = duration.toFixed(1) + 's';
+
+            // 显示结果区域
+            resultsSection.classList.remove('hidden');
+            progressSection.classList.add('hidden');
+
+            // 显示按钮区域，并确保按钮状态正确
+            const buttonSection = document.getElementById('button-section');
+            buttonSection.classList.remove('hidden');
+            clearBtn.style.display = 'inline-flex';
+
+            // 确保分析按钮可以点击，用于新的分析
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = '开始分析';
+            console.log('显示结果时重置按钮状态');
+
+            // 显示最长时间ID卡片
+            displayTopTrackCard(result);
+
+            // 更新详细结果表格（包含悬停功能）
+            updateResultsTable(result);
+
+            // 显示结果视频
+            if (result.video_path) {
+                const videoPath = result.video_path.startsWith('results/') 
+                    ? `/api/video/results/${result.video_path.replace('results/', '')}`
+                    : `/api/video/${result.video_path}`;
+                document.getElementById('result-video').src = videoPath;
+            }
+        }
+
+        function updateBehaviorChart(result) {
+            const ctx = document.getElementById('behavior-chart');
+            if (!ctx) return;
+
+            // 检查Chart是否已加载
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js 未加载，请刷新页面重试');
+                ctx.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">图表库未加载，请刷新页面重试</div>';
+                return;
+            }
+
+            // 销毁现有图表
+            if (behaviorChart) {
+                behaviorChart.destroy();
+            }
+
+            const behaviorAnalysis = result.behavior_analysis;
+            const topTracks = behaviorAnalysis ? behaviorAnalysis.top_tracks : [];
+
+            if (topTracks.length === 0) {
+                ctx.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">暂无行为分析数据</div>';
+                return;
+            }
+
+            // 准备图表数据
+            const labels = topTracks.map(track => `ID ${track.track_id}`);
+            const valueData = topTracks.map(track => track.value_ratio);
+            const nonValueData = topTracks.map(track => track.non_value_ratio);
+            const walkingData = topTracks.map(track => track.walking_ratio);
+            const waitingData = topTracks.map(track => track.waiting_ratio);
+
+            behaviorChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '增值时间',
+                            data: valueData,
+                            backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                            borderColor: '#10B981',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        },
+                        {
+                            label: '步行时间',
+                            data: walkingData,
+                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                            borderColor: '#3B82F6',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        },
+                        {
+                            label: '等待时间',
+                            data: waitingData,
+                            backgroundColor: 'rgba(245, 158, 11, 0.8)',
+                            borderColor: '#F59E0B',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        },
+                        {
+                            label: '非增值时间',
+                            data: nonValueData,
+                            backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                            borderColor: '#EF4444',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                color: '#374151'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)',
+                                lineWidth: 1
+                            },
+                            ticks: {
+                                font: {
+                                    size: 12
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: '时间比例 (%)',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                color: '#374151'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                pointStyle: 'circle',
+                                font: {
+                                    size: 13,
+                                    weight: 'bold'
+                                },
+                                padding: 20,
+                                color: '#374151'
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: 'white',
+                            bodyColor: 'white',
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                            borderWidth: 1,
+                            cornerRadius: 8,
+                            displayColors: true,
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.dataset.label || '';
+                                    const value = context.raw || 0;
+                                    return `${label}: ${value.toFixed(1)}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateRatioDisplay(result) {
+            const ratioDisplay = document.getElementById('ratio-display');
+            if (!ratioDisplay) return;
+
+            const behaviorAnalysis = result.behavior_analysis;
+            const topTracks = behaviorAnalysis ? behaviorAnalysis.top_tracks : [];
+
+            if (topTracks.length === 0) {
+                ratioDisplay.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">暂无数据</div>';
+                return;
+            }
+
+            let html = '';
+            
+            topTracks.forEach((track, index) => {
+                const cardColors = [
+                    'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200',
+                    'bg-gradient-to-br from-green-50 to-green-100 border-green-200', 
+                    'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200'
+                ];
+                const cardClass = cardColors[index] || 'bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200';
+                
+                html += `
+                    <div class="${cardClass} rounded-xl p-6 border-2 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                        <div class="text-center mb-4">
+                            <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white shadow-md mb-2">
+                                <span class="text-xl font-bold text-gray-700">${track.track_id}</span>
+                            </div>
+                            <h5 class="font-semibold text-gray-800 text-lg">追踪目标 ${track.track_id}</h5>
+                        </div>
+                        
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-center bg-white rounded-lg px-3 py-2 shadow-sm">
+                                <div class="flex items-center">
+                                    <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                                    <span class="text-sm font-medium text-gray-700">增值比</span>
+                                </div>
+                                <span class="font-bold text-green-600 text-lg">${track.value_ratio.toFixed(1)}%</span>
+                            </div>
+                            
+                            <div class="flex justify-between items-center bg-white rounded-lg px-3 py-2 shadow-sm">
+                                <div class="flex items-center">
+                                    <div class="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                                    <span class="text-sm font-medium text-gray-700">步行比</span>
+                                </div>
+                                <span class="font-bold text-blue-600 text-lg">${track.walking_ratio.toFixed(1)}%</span>
+                            </div>
+                            
+                            <div class="flex justify-between items-center bg-white rounded-lg px-3 py-2 shadow-sm">
+                                <div class="flex items-center">
+                                    <div class="w-3 h-3 bg-orange-500 rounded-full mr-2"></div>
+                                    <span class="text-sm font-medium text-gray-700">等待比</span>
+                                </div>
+                                <span class="font-bold text-orange-600 text-lg">${track.waiting_ratio.toFixed(1)}%</span>
+                            </div>
+                            
+                            <div class="flex justify-between items-center bg-white rounded-lg px-3 py-2 shadow-sm">
+                                <div class="flex items-center">
+                                    <div class="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
+                                    <span class="text-sm font-medium text-gray-700">非增值比</span>
+                                </div>
+                                <span class="font-bold text-red-600 text-lg">${track.non_value_ratio.toFixed(1)}%</span>
+                            </div>
+                            
+                            <div class="border-t border-gray-300 pt-3 mt-4">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-sm font-medium text-gray-600">总追踪时间</span>
+                                    <span class="font-bold text-gray-800 text-lg">${track.total_time.toFixed(0)} 帧</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            ratioDisplay.innerHTML = html;
+        }
+
+        function updateResultsTable(result) {
+            const tbody = document.getElementById('results-table-body');
+            const behaviorAnalysis = result.behavior_analysis;
+            const trackBehaviors = behaviorAnalysis ? behaviorAnalysis.track_behaviors : {};
+
+            if (Object.keys(trackBehaviors).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-4 text-center text-gray-500">暂无分析数据</td></tr>';
+                return;
+            }
+
+            // 按总时间排序
+            const sortedTracks = Object.entries(trackBehaviors).sort(
+                (a, b) => b[1].total_time - a[1].total_time
+            );
+
+            // 更新全局tracks数据
+            allTracks = sortedTracks.map(([trackId, track]) => ({
+                track_id: parseInt(trackId),
+                total_time: track.total_time,
+                value_ratio: track.value_ratio,
+                non_value_ratio: track.non_value_ratio,
+                walking_ratio: track.walking_ratio,
+                waiting_ratio: track.waiting_ratio
+            }));
+
+            let html = '';
+            sortedTracks.forEach(([trackId, track], index) => {
+                const colors = ['bg-blue-50', 'bg-green-50', 'bg-yellow-50', 'bg-purple-50', 'bg-orange-50', 'bg-red-50'];
+                const rowClass = colors[index % colors.length] || 'bg-gray-50';
+                
+                html += `
+                    <tr class="${rowClass} hover:bg-gray-100 cursor-pointer relative" 
+                        onclick="showBehaviorModal(${trackId})">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            <div class="flex items-center">
+                                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-800 text-sm font-bold mr-3">
+                                    ${trackId}
+                                </span>
+                                ID ${trackId}
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${track.total_time.toFixed(0)}帧
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${track.value_time.toFixed(0)}帧 (${track.value_ratio.toFixed(1)}%)
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${track.non_value_time.toFixed(0)}帧 (${track.non_value_ratio.toFixed(1)}%)
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${track.walking_time.toFixed(0)}帧 (${track.walking_ratio.toFixed(1)}%)
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${track.waiting_time.toFixed(0)}帧 (${track.waiting_ratio.toFixed(1)}%)
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function updateProgress(percent, message) {
+            document.getElementById('progress-percent').textContent = percent + '%';
+            document.getElementById('progress-text').textContent = message;
+            document.getElementById('progress-bar').style.width = percent + '%';
+        }
+
+        function updateStatus(message) {
+            statusIndicator.textContent = message;
+        }
+
+        // 最长时间ID卡片相关函数
+        function displayTopTrackCard(result) {
+            const behaviorAnalysis = result.behavior_analysis;
+            const trackBehaviors = behaviorAnalysis ? behaviorAnalysis.track_behaviors : {};
+
+            if (Object.keys(trackBehaviors).length === 0) {
+                topTrackSection.classList.add('hidden');
+                return;
+            }
+
+            // 找到追踪时间最长的ID
+            const sortedTracks = Object.entries(trackBehaviors).sort(
+                (a, b) => b[1].total_time - a[1].total_time
+            );
+
+            if (sortedTracks.length === 0) {
+                topTrackSection.classList.add('hidden');
+                return;
+            }
+
+            const [topTrackId, topTrackData] = sortedTracks[0];
+            
+            // 生成卡片HTML
+            const html = `
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-100 border-2 border-blue-200 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer" 
+                     onclick="showBehaviorModal(${topTrackId})">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <div class="flex-shrink-0">
+                                <div class="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center shadow-lg">
+                                    <span class="text-2xl font-bold text-white">${topTrackId}</span>
+                                </div>
+                                    </div>
+                                    <div>
+                                <h4 class="text-xl font-bold text-gray-900">追踪目标 ID ${topTrackId}</h4>
+                                <p class="text-sm text-gray-600">追踪时间最长的目标</p>
+                                    </div>
+                                    </div>
+                        <div class="text-right">
+                            <div class="text-3xl font-bold text-blue-600">${topTrackData.total_time.toFixed(0)}</div>
+                            <div class="text-sm text-gray-600">总帧数</div>
+                                    </div>
+                                </div>
+                    
+                    <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-green-600">${topTrackData.value_ratio.toFixed(1)}%</div>
+                            <div class="text-xs text-gray-600">增值时间</div>
+                                </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-blue-600">${topTrackData.walking_ratio.toFixed(1)}%</div>
+                            <div class="text-xs text-gray-600">步行时间</div>
+                            </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-orange-600">${topTrackData.waiting_ratio.toFixed(1)}%</div>
+                            <div class="text-xs text-gray-600">等待时间</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-red-600">${topTrackData.non_value_ratio.toFixed(1)}%</div>
+                            <div class="text-xs text-gray-600">非增值时间</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 text-center">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                            </svg>
+                            点击查看详细分析
+                        </span>
+                        </div>
+                    </div>
+                `;
+
+            topTrackCard.innerHTML = html;
+            topTrackSection.classList.remove('hidden');
+        }
+
+        // 批量分析功能函数
+        function selectAllHistory() {
+            const checkboxes = document.querySelectorAll('.history-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updateSelectionCount();
+        }
+
+        function clearSelection() {
+            const checkboxes = document.querySelectorAll('.history-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateSelectionCount();
+        }
+
+        function updateSelectionCount() {
+            const checkedBoxes = document.querySelectorAll('.history-checkbox:checked');
+            const count = checkedBoxes.length;
+            selectionCount.textContent = `已选择 ${count} 条记录`;
+            batchAnalyzeBtn.disabled = count === 0;
+        }
+
+        async function performBatchAnalysis() {
+            const checkedBoxes = document.querySelectorAll('.history-checkbox:checked');
+            if (checkedBoxes.length === 0) {
+                alert('请先选择要分析的记录');
+                return;
+            }
+
+            try {
+                batchAnalyzeBtn.disabled = true;
+                batchAnalyzeBtn.textContent = '分析中...';
+
+                const analysisIds = Array.from(checkedBoxes).map(checkbox => checkbox.dataset.analysisId);
+                const filenames = Array.from(checkedBoxes).map(checkbox => checkbox.dataset.filename);
+
+                console.log('开始批量分析，分析ID:', analysisIds);
+                console.log('文件名:', filenames);
+
+                // 显示进度提示
+                updateStatus('正在准备批量分析...');
+
+                // 调用后端批量分析接口
+                const response = await fetch('/api/batch-analysis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        analysis_ids: analysisIds
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP错误: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('批量分析响应:', data);
+
+                if (data.success) {
+                    console.log('批量分析成功，准备显示结果:', data.data);
+                    // 显示结果
+                    displayBatchResults(data.data);
+                    updateStatus('批量分析完成');
+                } else {
+                    console.error('批量分析失败:', data.error);
+                    alert('批量分析失败: ' + (data.error || '未知错误'));
+                    updateStatus('批量分析失败');
+                }
+                
+            } catch (error) {
+                console.error('批量分析失败:', error);
+                console.error('错误详情:', error.message);
+                console.error('错误堆栈:', error.stack);
+                
+                let errorMessage = '批量分析失败: ';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage += '网络连接失败，请检查服务器状态';
+                } else if (error.message.includes('HTTP错误')) {
+                    errorMessage += error.message;
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                alert(errorMessage);
+                updateStatus('批量分析失败');
+            } finally {
+                batchAnalyzeBtn.disabled = false;
+                batchAnalyzeBtn.textContent = '开始批量分析';
+            }
+        }
+
+
+        function displayBatchResults(results) {
+            console.log('开始显示批量分析结果:', results);
+            console.log('results类型:', typeof results);
+            console.log('results是否为null/undefined:', results === null || results === undefined);
+            
+            if (!results) {
+                console.error('results为空');
+                return;
+            }
+            
+            const { global_result, workstations, video_details } = results;
+            console.log('解析后的数据:', { global_result, workstations, video_details });
+            
+            if (!global_result) {
+                console.error('global_result为空');
+                return;
+            }
+            
+            // 显示全局线平衡率结果
+            const globalHtml = `
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 p-6 mb-6">
+                    <h4 class="text-xl font-bold text-gray-900 mb-4 flex items-center">
+                        <svg class="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                        整体线平衡率分析结果
+                    </h4>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
+                        <div class="text-center">
+                            <div class="text-3xl font-bold ${global_result.balance_rate > 80 ? 'text-green-600' : global_result.balance_rate > 60 ? 'text-yellow-600' : 'text-red-600'}">
+                                ${global_result.balance_rate}%
+                            </div>
+                            <div class="text-gray-600 font-medium">整体线平衡率</div>
+                        </div>
+                        <div>
+                            <div class="font-medium text-gray-600">瓶颈工位ID:</div>
+                            <div class="text-gray-900 font-semibold text-lg">${global_result.bottleneck_id || '无'}</div>
+                        </div>
+                        <div>
+                            <div class="font-medium text-gray-600">瓶颈增值时间:</div>
+                            <div class="text-gray-900 font-semibold text-lg">${global_result.bottleneck_value_time}秒</div>
+                        </div>
+                        <div>
+                            <div class="font-medium text-gray-600">工位数量:</div>
+                            <div class="text-gray-900 font-semibold text-lg">${global_result.workstation_count}个</div>
+                        </div>
+                    </div>
+                    <div class="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-600">
+                        <div>
+                            <span class="font-medium">所有工位作业时间总和:</span>
+                            <span class="ml-2 font-semibold">${global_result.total_value_time.toFixed(1)}秒</span>
+                        </div>
+                        <div>
+                            <span class="font-medium">所有工位工作周期总时长:</span>
+                            <span class="ml-2 font-semibold">${global_result.total_cycle_time.toFixed(1)}秒</span>
+                        </div>
+                        <div>
+                            <span class="font-medium">工段工位数:</span>
+                            <span class="ml-2 font-semibold">${global_result.video_count}个</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 显示工位详情
+            let workstationHtml = '';
+            if (workstations.length > 0) {
+                workstationHtml = `
+                    <div class="bg-white rounded-lg border-2 border-gray-200 p-4 mb-6">
+                        <h5 class="text-lg font-semibold text-gray-900 mb-4">工位详情</h5>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                `;
+                
+                workstations.forEach((workstation, index) => {
+                    const isBottleneck = workstation.track_id == global_result.bottleneck_id;
+                    const cardClass = isBottleneck ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200';
+                    
+                    workstationHtml += `
+                        <div class="${cardClass} rounded-lg border-2 p-3">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-semibold text-gray-900">工位 ${workstation.track_id}</span>
+                                ${isBottleneck ? '<span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">瓶颈工位</span>' : ''}
+                            </div>
+                            <div class="text-sm text-gray-600 space-y-1">
+                                <div>工作周期时长: <span class="font-medium">${workstation.cycle_time.toFixed(1)}秒</span></div>
+                                <div>作业时间(增值): <span class="font-medium">${workstation.value_time.toFixed(1)}秒</span></div>
+                                <div>步行时间: <span class="font-medium">${workstation.walking_time.toFixed(1)}秒</span></div>
+                                <div>等待时间: <span class="font-medium">${workstation.waiting_time.toFixed(1)}秒</span></div>
+                                <div>非增值时间: <span class="font-medium">${workstation.non_value_time.toFixed(1)}秒</span></div>
+                                <div>作业效率: <span class="font-medium">${workstation.cycle_time > 0 ? ((workstation.value_time / workstation.cycle_time) * 100).toFixed(1) : 0}%</span></div>
+                                <div class="text-xs text-gray-500">增值帧数: ${workstation.value_frames}/${workstation.total_frames}</div>
+                                <div class="text-xs text-gray-500">来源: ${workstation.filename}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                workstationHtml += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 显示每个视频的详细信息
+            let videoHtml = '';
+            video_details.forEach((video, index) => {
+                const colors = ['bg-blue-50', 'bg-green-50', 'bg-yellow-50', 'bg-purple-50', 'bg-orange-50', 'bg-red-50'];
+                const cardClass = colors[index % colors.length] || 'bg-gray-50';
+                
+                videoHtml += `
+                    <div class="${cardClass} rounded-lg border-2 p-4">
+                        <div class="flex justify-between items-start mb-3">
+                            <h5 class="text-lg font-semibold text-gray-900">${video.filename}</h5>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                ID: ${video.analysis_id.substring(0, 8)}...
+                            </span>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <span class="font-medium text-gray-600">工位ID:</span>
+                                <span class="text-gray-900 font-semibold">${video.workstation_id || '无'}</span>
+                            </div>
+                            <div>
+                                <span class="font-medium text-gray-600">工作周期时长:</span>
+                                <span class="text-gray-900">${video.cycle_time.toFixed(1)}秒</span>
+                            </div>
+                            <div>
+                                <span class="font-medium text-gray-600">作业时间(增值):</span>
+                                <span class="text-gray-900">${video.value_time.toFixed(1)}秒</span>
+                            </div>
+                        </div>
+                        <div class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-500">
+                            <div>
+                                <span class="font-medium">步行时间:</span>
+                                <span>${video.walking_time.toFixed(1)}秒</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">等待时间:</span>
+                                <span>${video.waiting_time.toFixed(1)}秒</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">非增值时间:</span>
+                                <span>${video.non_value_time.toFixed(1)}秒</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">作业效率:</span>
+                                <span>${video.efficiency}%</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            batchResultsContent.innerHTML = globalHtml + workstationHtml + videoHtml;
+            batchAnalysisResults.classList.remove('hidden');
+        }
+
+
+        // 模态框相关函数
+        async function showBehaviorModal(trackId) {
+            try {
+                selectedTrackId = trackId;
+                modalTitle.textContent = `ID ${trackId} 行为比例详情`;
+                
+                // 显示模态框
+                behaviorModal.classList.remove('hidden');
+                
+                // 加载选中ID的详细信息
+                const response = await fetch(`/api/track/${currentAnalysisId}/${trackId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayModalBehaviorDetail(result.data);
+                } else {
+                    console.error('加载追踪详情失败:', result.error);
+                    alert('加载追踪详情失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('加载追踪详情失败:', error);
+                alert('加载追踪详情失败: ' + error.message);
+            }
+        }
+
+        function closeBehaviorModal() {
+            behaviorModal.classList.add('hidden');
+            selectedTrackId = null;
+            
+            // 销毁模态框中的图表
+            if (modalBehaviorChart) {
+                modalBehaviorChart.destroy();
+                modalBehaviorChart = null;
+            }
+        }
+
+        function displayModalBehaviorDetail(trackData) {
+            // 更新模态框中的图表
+            updateModalBehaviorChart(trackData);
+            
+            // 更新模态框中的比例显示
+            updateModalRatioDisplay(trackData);
+        }
+
+        function updateModalBehaviorChart(trackData) {
+            const ctx = modalBehaviorChartCanvas;
+            if (!ctx) return;
+
+            // 检查Chart是否已加载
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js 未加载，请刷新页面重试');
+                ctx.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">图表库未加载，请刷新页面重试</div>';
+                return;
+            }
+
+            // 销毁现有图表
+            if (modalBehaviorChart) {
+                modalBehaviorChart.destroy();
+            }
+
+            // 准备图表数据
+            const labels = [`ID ${trackData.track_id}`];
+            const valueData = [trackData.value_ratio];
+            const nonValueData = [trackData.non_value_ratio];
+            const walkingData = [trackData.walking_ratio];
+            const waitingData = [trackData.waiting_ratio];
+
+            modalBehaviorChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '增值时间',
+                            data: valueData,
+                            backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                            borderColor: '#10B981',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        },
+                        {
+                            label: '步行时间',
+                            data: walkingData,
+                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                            borderColor: '#3B82F6',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        },
+                        {
+                            label: '等待时间',
+                            data: waitingData,
+                            backgroundColor: 'rgba(245, 158, 11, 0.8)',
+                            borderColor: '#F59E0B',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        },
+                        {
+                            label: '非增值时间',
+                            data: nonValueData,
+                            backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                            borderColor: '#EF4444',
+                            borderWidth: 2,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                color: '#374151'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)',
+                                lineWidth: 1
+                            },
+                            ticks: {
+                                font: {
+                                    size: 12
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: '时间比例 (%)',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                color: '#374151'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                pointStyle: 'circle',
+                                font: {
+                                    size: 13,
+                                    weight: 'bold'
+                                },
+                                padding: 20,
+                                color: '#374151'
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: 'white',
+                            bodyColor: 'white',
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                            borderWidth: 1,
+                            cornerRadius: 8,
+                            displayColors: true,
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.dataset.label || '';
+                                    const value = context.raw || 0;
+                                    return `${label}: ${value.toFixed(1)}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateModalRatioDisplay(trackData) {
+            const html = `
+                <div class="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 rounded-xl p-6 border-2 shadow-lg">
+                    <div class="text-center mb-4">
+                        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white shadow-md mb-2">
+                            <span class="text-2xl font-bold text-gray-700">${trackData.track_id}</span>
+                        </div>
+                        <h5 class="font-semibold text-gray-800 text-xl">追踪目标 ${trackData.track_id}</h5>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center bg-white rounded-lg px-4 py-3 shadow-sm">
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 bg-green-500 rounded-full mr-3"></div>
+                                <span class="text-lg font-medium text-gray-700">增值比</span>
+                            </div>
+                            <span class="font-bold text-green-600 text-xl">${trackData.value_ratio.toFixed(1)}%</span>
+                        </div>
+                        
+                        <div class="flex justify-between items-center bg-white rounded-lg px-4 py-3 shadow-sm">
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 bg-blue-500 rounded-full mr-3"></div>
+                                <span class="text-lg font-medium text-gray-700">步行比</span>
+                            </div>
+                            <span class="font-bold text-blue-600 text-xl">${trackData.walking_ratio.toFixed(1)}%</span>
+                        </div>
+                        
+                        <div class="flex justify-between items-center bg-white rounded-lg px-4 py-3 shadow-sm">
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 bg-orange-500 rounded-full mr-3"></div>
+                                <span class="text-lg font-medium text-gray-700">等待比</span>
+                            </div>
+                            <span class="font-bold text-orange-600 text-xl">${trackData.waiting_ratio.toFixed(1)}%</span>
+                        </div>
+                        
+                        <div class="flex justify-between items-center bg-white rounded-lg px-4 py-3 shadow-sm">
+                            <div class="flex items-center">
+                                <div class="w-4 h-4 bg-red-500 rounded-full mr-3"></div>
+                                <span class="text-lg font-medium text-gray-700">非增值比</span>
+                            </div>
+                            <span class="font-bold text-red-600 text-xl">${trackData.non_value_ratio.toFixed(1)}%</span>
+                        </div>
+                        
+                        <div class="border-t border-gray-300 pt-4 mt-6">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-800">${trackData.total_time.toFixed(0)}</div>
+                                    <div class="text-sm text-gray-600">总追踪时间(帧)</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-800">${trackData.value_time.toFixed(0)}</div>
+                                    <div class="text-sm text-gray-600">增值时间(帧)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            modalRatioDisplay.innerHTML = html;
+        }
+
+        function resetAnalysis() {
+            currentAnalysisId = null;
+            selectedTrackId = null;
+            allTracks = [];
+            
+            if (analysisInterval) {
+                clearInterval(analysisInterval);
+                analysisInterval = null;
+            }
+            
+            // 重置按钮状态
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = '开始分析';
+            console.log('重置分析 - 按钮状态已恢复');
+            
+            // 隐藏进度区域和模态框
+            progressSection.classList.add('hidden');
+            behaviorModal.classList.add('hidden');
+            hoverIdSelector.classList.add('hidden');
+            topTrackSection.classList.add('hidden');
+            
+            // 重置进度条
+            updateProgress(0, '准备中...');
+            
+            // 确保按钮区域可见（如果视频已选择）
+            if (fileInput.files[0]) {
+                const buttonSection = document.getElementById('button-section');
+                buttonSection.classList.remove('hidden');
+            }
+            
+            updateStatus('就绪');
+        }
+
+        // 历史记录相关函数
+        function toggleHistory() {
+            if (historySection.classList.contains('hidden')) {
+                showHistory();
+            } else {
+                hideHistory();
+            }
+        }
+
+        function showHistory() {
+            historySection.classList.remove('hidden');
+            resultsSection.classList.add('hidden');
+            historyBtn.textContent = '返回分析';
+            loadHistory();
+        }
+
+        function hideHistory() {
+            historySection.classList.add('hidden');
+            historyBtn.textContent = '历史记录';
+        }
+
+        async function loadHistory() {
+            try {
+                showHistoryLoading();
+                
+                // 获取分页历史记录
+                const response = await fetch(`/api/history?page=${currentPage}&per_page=${perPage}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    historyData = result.data;
+                    totalPages = result.total_pages;
+                    totalRecords = result.total;
+                    
+                    displayHistoryList();
+                    updatePaginationInfo();
+                    loadStatistics();
+                } else {
+                    showHistoryError('加载历史记录失败');
+                }
+            } catch (error) {
+                console.error('加载历史记录失败:', error);
+                showHistoryError('加载历史记录失败: ' + error.message);
+            }
+        }
+
+            
+
+        async function loadStatistics() {
+            try {
+                const response = await fetch('/api/statistics');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const stats = result.data;
+                    document.getElementById('total-analyses').textContent = stats.total_analyses;
+                    document.getElementById('total-tracks-history').textContent = stats.total_tracks;
+                    
+                    if (stats.last_analysis) {
+                        const date = new Date(stats.last_analysis);
+                        document.getElementById('last-analysis-time').textContent = date.toLocaleDateString();
+                    } else {
+                        document.getElementById('last-analysis-time').textContent = '-';
+                    }
+                }
+            } catch (error) {
+                console.error('加载统计信息失败:', error);
+            }
+        }
+
+        function showHistoryLoading() {
+            document.getElementById('history-loading').classList.remove('hidden');
+            document.getElementById('history-empty').classList.add('hidden');
+            historyList.classList.add('hidden');
+        }
+
+        function showHistoryError(message) {
+            document.getElementById('history-loading').classList.add('hidden');
+            document.getElementById('history-empty').classList.remove('hidden');
+            historyList.classList.add('hidden');
+            document.querySelector('#history-empty p').textContent = message;
+        }
+
+        function displayHistoryList() {
+            // 确保数据已初始化
+            if (!historyData) historyData = [];
+            
+            // 检查是否有数据
+            if (historyData.length === 0) {
+                document.getElementById('history-loading').classList.add('hidden');
+                document.getElementById('history-empty').classList.remove('hidden');
+                historyList.classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('history-loading').classList.add('hidden');
+            document.getElementById('history-empty').classList.add('hidden');
+            historyList.classList.remove('hidden');
+            
+            // 显示历史记录
+            displayHistorySection(historyList, historyData);
+        }
+
+        function displayHistorySection(container, data) {
+            if (data.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        暂无历史记录
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            data.forEach((item, index) => {
+                const date = new Date(item.created_at);
+                const colors = ['bg-blue-50 border-blue-200', 'bg-green-50 border-green-200', 'bg-purple-50 border-purple-200'];
+                const cardClass = colors[index % colors.length] || 'bg-gray-50 border-gray-200';
+                
+                // 添加时间标签
+                const timeLabel = getTimeLabel(date);
+                
+                html += `
+                    <div class="${cardClass} rounded-lg border-2 p-4 history-card">
+                        <div class="flex justify-between items-start">
+                            <div class="flex items-center space-x-3">
+                                <input type="checkbox" class="history-checkbox w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" 
+                                       data-analysis-id="${item.analysis_id}" data-filename="${item.original_filename}">
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-3 mb-2">
+                                    <h4 class="text-lg font-semibold text-gray-900">${item.original_filename}</h4>
+                                    <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                        ID: ${item.analysis_id.substring(0, 8)}...
+                                    </span>
+                                    ${timeLabel ? `<span class="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">${timeLabel}</span>` : ''}
+                                </div>
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 mb-3">
+                                    <div>
+                                        <span class="font-medium">追踪目标:</span> ${item.total_tracks}
+                                    </div>
+                                    <div>
+                                        <span class="font-medium">视频时长:</span> ${item.video_info.duration ? item.video_info.duration.toFixed(1) + 's' : '-'}
+                                    </div>
+                                    <div>
+                                        <span class="font-medium">分辨率:</span> ${item.video_info.resolution || '-'}
+                                    </div>
+                                    <div>
+                                        <span class="font-medium">分析时间:</span> ${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}
+                                    </div>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button onclick="viewHistoryDetail('${item.analysis_id}')" 
+                                            class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors duration-200">
+                                        查看详情
+                                    </button>
+                                    <button onclick="deleteHistoryItem('${item.analysis_id}')" 
+                                            class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors duration-200">
+                                        删除
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function getTimeLabel(date) {
+            const now = new Date();
+            const diffTime = now - date;
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
+            const diffMinutes = Math.floor(diffTime / (1000 * 60));
+
+            if (diffMinutes < 60) {
+                return '刚刚';
+            } else if (diffHours < 24) {
+                return `${diffHours}小时前`;
+            } else if (diffDays === 0) {
+                return '今天';
+            } else if (diffDays === 1) {
+                return '昨天';
+            } else if (diffDays === 2) {
+                return '前天';
+            } else if (diffDays < 7) {
+                return `${diffDays}天前`;
+            } else {
+                return null;
+            }
+        }
+
+        async function viewHistoryDetail(analysisId) {
+            try {
+                const response = await fetch(`/api/history/${analysisId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    // 设置当前分析ID
+                    currentAnalysisId = analysisId;
+                    
+                    // 隐藏历史记录区域，显示结果区域
+                    hideHistory();
+                    resultsSection.classList.remove('hidden');
+                    
+                    // 显示历史记录的结果
+                    displayResults(result.data);
+                } else {
+                    alert('获取历史记录详情失败');
+                }
+            } catch (error) {
+                console.error('获取历史记录详情失败:', error);
+                alert('获取历史记录详情失败: ' + error.message);
+            }
+        }
+
+        async function deleteHistoryItem(analysisId) {
+            if (!confirm('确定要删除这条历史记录吗？')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/history/${analysisId}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    // 重新加载历史记录
+                    loadHistory();
+                } else {
+                    alert('删除失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('删除历史记录失败:', error);
+                alert('删除失败: ' + error.message);
+            }
+        }
+
+        // 分页相关函数
+        function updatePaginationInfo() {
+            currentPageSpan.textContent = currentPage;
+            totalPagesSpan.textContent = totalPages;
+            totalRecordsSpan.textContent = totalRecords;
+            
+            // 更新按钮状态
+            prevPageBtn.disabled = currentPage <= 1;
+            nextPageBtn.disabled = currentPage >= totalPages;
+        }
+        
+        function handlePerPageChange() {
+            perPage = parseInt(perPageSelect.value);
+            currentPage = 1; // 重置到第一页
+            loadHistory();
+        }
+        
+        function goToPreviousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                loadHistory();
+            }
+        }
+        
+        function goToNextPage() {
+            if (currentPage < totalPages) {
+                currentPage++;
+                loadHistory();
+            }
+        }
+        
+        // 初始化滚动支持（仅用于内部滚动条）
+        function initializeScrollSupport() {
+            // 这里可以添加其他滚动相关的初始化代码
+            // 但不需要滚轮翻页功能
+        }
+        
+        // 侧边栏功能切换函数
+        function switchToStandardOperation() {
+            // 更新按钮状态
+            updateSidebarButtonState('standard-operation');
+            
+            // 显示标准化操作矫正相关的内容
+            // 这里不需要做任何操作，因为当前页面就是标准化操作矫正功能
+            console.log('切换到标准化操作矫正功能');
+        }
+        
+        function switchToQualityInspection() {
+            // 更新按钮状态
+            updateSidebarButtonState('quality-inspection');
+            
+            // 显示质检识别相关的内容
+            // 这里可以添加质检识别功能的UI切换逻辑
+            console.log('切换到质检识别功能（开发中）');
+            alert('质检识别功能正在开发中，敬请期待！');
+        }
+        
+        function switchToPEWear() {
+            // 更新按钮状态
+            updateSidebarButtonState('pe-wear');
+            
+            // 显示PE穿戴识别相关的内容
+            // 这里可以添加PE穿戴识别功能的UI切换逻辑
+            console.log('切换到PE穿戴识别功能（开发中）');
+            alert('PE穿戴识别功能正在开发中，敬请期待！');
+        }
+        
+        function updateSidebarButtonState(activeFunction) {
+            // 重置所有按钮状态
+            const buttons = [
+                { btn: standardOperationBtn, id: 'standard-operation' },
+                { btn: qualityInspectionBtn, id: 'quality-inspection' },
+                { btn: peWearBtn, id: 'pe-wear' }
+            ];
+            
+            buttons.forEach(({ btn, id }) => {
+                if (btn) {
+                    if (id === activeFunction) {
+                        // 激活状态
+                        btn.className = 'w-full text-left px-4 py-3 rounded-lg border-2 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 transition-colors duration-200 flex items-center sidebar-function-btn active';
+                    } else {
+                        // 非激活状态
+                        if (id === 'standard-operation') {
+                            btn.className = 'w-full text-left px-4 py-3 rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors duration-200 flex items-center sidebar-function-btn';
+                        } else {
+                            btn.className = 'w-full text-left px-4 py-3 rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors duration-200 flex items-center sidebar-function-btn opacity-50 cursor-not-allowed';
+                        }
+                    }
+                }
+            });
+        }
+
+
+    </script>
+    
+    <!-- 底部 -->
+    <footer class="bg-transparent text-gray-600 py-2 flex-shrink-0" style="height: 30px;">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-gray-600">
+                        © 2025 视频分析系统
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        智能行为分析与数据可视化平台
+                    </div>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <div class="text-xs text-gray-500">
+                        版本 v1.0.0
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

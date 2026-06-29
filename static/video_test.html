@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频服务测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        video {
+            width: 100%;
+            max-width: 600px;
+            height: auto;
+        }
+        .url-test {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>视频服务测试页面</h1>
+    
+    <div class="test-section">
+        <h2>测试视频URL</h2>
+        <p>请手动输入一个视频文件名进行测试：</p>
+        <input type="text" id="video-filename" placeholder="例如: test_video.mp4" style="width: 300px; padding: 8px;">
+        <button onclick="testVideo()">测试视频</button>
+    </div>
+
+    <div class="test-section">
+        <h2>视频显示区域</h2>
+        <video id="test-video" controls>
+            您的浏览器不支持视频标签。
+        </video>
+        <div id="video-status" style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-radius: 4px;">
+            等待测试...
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>URL测试结果</h2>
+        <div id="url-results"></div>
+    </div>
+
+    <script>
+        function testVideo() {
+            const filename = document.getElementById('video-filename').value;
+            if (!filename) {
+                alert('请输入视频文件名');
+                return;
+            }
+
+            const video = document.getElementById('test-video');
+            const status = document.getElementById('video-status');
+            const results = document.getElementById('url-results');
+
+            // 清空之前的结果
+            results.innerHTML = '';
+
+            // 测试不同的URL路径
+            const baseUrl = 'http://10.3.11.55:5000';
+            const urls = [
+                `${baseUrl}/api/video/results/${filename}`,
+                `${baseUrl}/video/${filename}`,
+                `${baseUrl}/results/${filename}`
+            ];
+
+            status.innerHTML = '正在测试视频URL...';
+
+            // 测试每个URL
+            urls.forEach((url, index) => {
+                const urlDiv = document.createElement('div');
+                urlDiv.className = 'url-test';
+                urlDiv.innerHTML = `
+                    <strong>测试 ${index + 1}:</strong> ${url}
+                    <div id="status-${index}">测试中...</div>
+                `;
+                results.appendChild(urlDiv);
+
+                // 测试URL是否可访问
+                fetch(url, { method: 'HEAD' })
+                    .then(response => {
+                        const statusDiv = document.getElementById(`status-${index}`);
+                        if (response.ok) {
+                            statusDiv.innerHTML = `✅ 成功 (${response.status})`;
+                            statusDiv.style.color = 'green';
+                            
+                            // 如果这是第一个成功的URL，设置为视频源
+                            if (index === 0 || video.src === '') {
+                                video.src = url;
+                                status.innerHTML = `✅ 视频加载成功: ${url}`;
+                                status.style.color = 'green';
+                            }
+                        } else {
+                            statusDiv.innerHTML = `❌ 失败 (${response.status})`;
+                            statusDiv.style.color = 'red';
+                        }
+                    })
+                    .catch(error => {
+                        const statusDiv = document.getElementById(`status-${index}`);
+                        statusDiv.innerHTML = `❌ 错误: ${error.message}`;
+                        statusDiv.style.color = 'red';
+                    });
+            });
+
+            // 监听视频事件
+            video.addEventListener('loadstart', () => {
+                status.innerHTML = '视频开始加载...';
+                status.style.color = 'blue';
+            });
+
+            video.addEventListener('canplay', () => {
+                status.innerHTML = '视频可以播放了！';
+                status.style.color = 'green';
+            });
+
+            video.addEventListener('error', (e) => {
+                status.innerHTML = `视频加载失败: ${e.message || '未知错误'}`;
+                status.style.color = 'red';
+            });
+        }
+
+        // 页面加载时自动测试一个示例视频
+        window.onload = function() {
+            // 可以在这里添加一个默认的测试文件名
+            console.log('视频测试页面已加载');
+        };
+    </script>
+</body>
+</html>
