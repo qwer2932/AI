@@ -32,7 +32,7 @@ pip install -r requirements.txt
 
 3. **启动系统**
 ```bash
-python run.py
+python app.py
 ```
 
 4. **访问系统**
@@ -75,21 +75,26 @@ python run.py
 ## 文件结构
 
 ```
-ai_track/
-├── app.py                      # Flask后端应用
-├── run.py                      # 启动脚本
-├── requirements.txt            # 依赖包列表
-├── tracking_system.py          # 核心追踪系统
-├── yolov8_deepsort_tracker.py # YOLO + DeepSORT 追踪器
-├── static/
-│   └── index.html             # 前端页面
-├── runs/detect/               # YOLO训练模型
-│   └── a4000_traffic_train_filtered4/
-│       └── weights/
-│           ├── best.pt        # 最佳权重
-│           └── last.pt        # 最后权重
-├── uploads/                   # 上传的视频文件
-└── results/                   # 分析结果文件
+project_root/
+├── blueprints/                    # 蓝图（路由）
+│   ├── main.py                    # 主页、静态文件、视频流
+│   └── api.py                     # 所有 API 接口
+├── service/                       # 业务逻辑服务
+│   ├── analysis_service.py        # 追踪分析核心
+│   └── balance_service.py         # 线平衡计算
+├── core/                          # 核心代码
+│   ├── state.py                   # 全局状态变量
+│   ├── utils.py                   # 工具函数
+│   ├── tracking_system.py         # YOLO+DeepSORT 追踪系统
+│   └── step_inference.py          # 装配步骤推理
+├── database.py                    # 数据库管理器
+├── config.py                      # 配置类
+├── exts.py                        # 扩展初始化（CORS）
+├── app.py                         # 应用工厂 + 所有初始化 + 启动
+├── best.pt                        # 模型权重
+├── static/                        # 前端静态文件
+├── uploads/                       # 视频上传目录
+└── results/                       # 分析结果目录
 ```
 
 ## 注意事项
@@ -119,7 +124,7 @@ ai_track/
 
 如需修改或扩展功能，请参考以下文件：
 
-- `app.py`: 后端API接口
+- `blueprints/api.py`: 后端API接口
 - `tracking_system.py`: 核心追踪逻辑
 - `static/index.html`: 前端界面
 - `yolov8_deepsort_tracker.py`: 追踪算法实现

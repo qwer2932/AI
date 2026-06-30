@@ -47,7 +47,7 @@ class DatabaseManager:
         return conn
     
     def init_database(self):
-        """初始化数据库表结构"""
+        """初始化数据库表结构，并处理旧表迁移"""
         # 首先创建数据库（如果不存在）
         conn = pymysql.connect(
             host=self.host,
@@ -84,38 +84,71 @@ class DatabaseManager:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ''')
         
-        # 创建追踪目标详情表（新：7个装配步骤）
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS track_details (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                analysis_id VARCHAR(255) NOT NULL,
-                track_id INT NOT NULL,
-                total_time DECIMAL(10,2) NOT NULL,
-                robotpick_time DECIMAL(10,2) NOT NULL DEFAULT 0,
-                scan_time DECIMAL(10,2) NOT NULL DEFAULT 0,
-                robotfix_time DECIMAL(10,2) NOT NULL DEFAULT 0,
-                handtighten_time DECIMAL(10,2) NOT NULL DEFAULT 0,
-                electricgun_time DECIMAL(10,2) NOT NULL DEFAULT 0,
-                robotreturn_time DECIMAL(10,2) NOT NULL DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (analysis_id) REFERENCES analysis_history (analysis_id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ''')
+        # 迁移或创建 track_details 表（去掉 gettool_time，使用正确步骤名称）
+        # 检查表是否存在
+        cursor.execute("SHOW TABLES LIKE 'track_details'")
+        table_exists = cursor.fetchone() is not None
+        
+        if table_exists:
+            # 获取现有列名
+            cursor.execute("SHOW COLUMNS FROM track_details")
+            columns = [row[0] for row in cursor.fetchall()]
+            
+            # 删除旧的 gettool_time 列（如果存在）
+            if 'gettool_time' in columns:
+                try:
+                    cursor.execute("ALTER TABLE track_details DROP COLUMN gettool_time")
+                    print("已删除旧列 gettool_time")
+                except Exception as e:
+                    print(f"删除 gettool_time 列失败: {e}")
+            
+            # 添加缺失的步骤列（如果不存在）
+            new_columns = [
+                'robotpick_time', 'scan_time', 'robotfix_time',
+                'handtighten_time', 'electricgun_time', 'robotreturn_time'
+            ]
+            for col in new_columns:
+                if col not in columns:
+                    try:
+                        cursor.execute(f"ALTER TABLE track_details ADD COLUMN {col} DECIMAL(10,2) NOT NULL DEFAULT 0")
+                        print(f"已添加列 {col}")
+                    except Exception as e:
+                        print(f"添加列 {col} 失败: {e}")
+        else:
+            # 创建新表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS track_details (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    analysis_id VARCHAR(255) NOT NULL,
+                    track_id INT NOT NULL,
+                    total_time DECIMAL(10,2) NOT NULL,
+                    robotpick_time DECIMAL(10,2) NOT NULL DEFAULT 0,
+                    scan_time DECIMAL(10,2) NOT NULL DEFAULT 0,
+                    robotfix_time DECIMAL(10,2) NOT NULL DEFAULT 0,
+                    handtighten_time DECIMAL(10,2) NOT NULL DEFAULT 0,
+                    electricgun_time DECIMAL(10,2) NOT NULL DEFAULT 0,
+                    robotreturn_time DECIMAL(10,2) NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (analysis_id) REFERENCES analysis_history (analysis_id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+            print("已创建新表 track_details")
         
         # 创建索引
         try:
             cursor.execute('CREATE INDEX idx_analysis_id ON analysis_history (analysis_id)')
         except:
-            pass  # 索引已存在
+            pass
         try:
             cursor.execute('CREATE INDEX idx_created_at ON analysis_history (created_at)')
         except:
-            pass  # 索引已存在
+            pass
         try:
             cursor.execute('CREATE INDEX idx_track_analysis_id ON track_details (analysis_id)')
         except:
-            pass  # 索引已存在
+            pass
         
+        conn.commit()
         conn.close()
     
     def save_analysis_result(self, analysis_data: Dict) -> bool:
@@ -172,15 +205,15 @@ class DatabaseManager:
             
             # 删除旧的追踪详情记录
             cursor.execute('DELETE FROM track_details WHERE analysis_id = %s', (analysis_id,))
-
-            # 插入追踪详情记录（新：7个装配步骤）
+            
+            # 插入新的追踪详情（步骤时间，以帧数为单位，后续由前端转换为时间）
             track_behaviors = behavior_analysis.get('track_behaviors', {})
             for track_id, track_data in track_behaviors.items():
                 cursor.execute('''
                     INSERT INTO track_details (
                         analysis_id, track_id, total_time,
-                        gettool_time, robotpick_time, robotfix_time,
-                        handtighten_time, scan_time, electricgun_time, robotreturn_time
+                        robotpick_time, scan_time, robotfix_time,
+                        handtighten_time, electricgun_time, robotreturn_time
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ''', (
                     analysis_id,
@@ -200,7 +233,18 @@ class DatabaseManager:
             
         except Exception as e:
             print(f"保存分析结果失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+    
+    def _get_video_url(self, result_video_path: Optional[str]) -> Optional[str]:
+        """将存储的结果视频路径转换为可访问的URL（相对路径）"""
+        if not result_video_path:
+            return None
+        # 提取文件名（例如 "results/xxx.avi" -> "xxx.avi"）
+        filename = os.path.basename(result_video_path)
+        # 构造相对API路径
+        return f"/api/video/results/{filename}"
     
     def get_analysis_history_all(self) -> List[Dict]:
         """
@@ -223,25 +267,24 @@ class DatabaseManager:
             
             results = []
             for row in cursor.fetchall():
-                print(f"数据库原始时间: {row[9]} (类型: {type(row[9])})")
-                # 将datetime对象转换为字符串，保持原始格式
                 created_at_str = row[9].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row[9], 'strftime') else str(row[9])
-                print(f"转换后的时间字符串: {created_at_str}")
+                # 转换结果视频路径为相对URL
+                video_url = self._get_video_url(row[4])  # row[4] 是 result_video_path
+                
                 results.append({
                     'analysis_id': row[0],
                     'filename': row[1],
                     'original_filename': row[2],
                     'video_path': row[3],
-                    'result_video_path': row[4] if row[4] else f"http://10.3.11.55:5000/api/video/results/{row[0]}_tracked.mp4",
+                    'result_video_path': video_url,  # 使用转换后的URL
                     'video_info': json.loads(row[5]),
                     'total_tracks': row[6],
                     'tracked_ids': json.loads(row[7]),
                     'top_tracks': json.loads(row[8]),
-                    'created_at': created_at_str  # 使用转换后的字符串
+                    'created_at': created_at_str
                 })
             
             conn.close()
-            print(f"返回给API的时间数据: {[r['created_at'] for r in results]}")
             return results
             
         except Exception as e:
@@ -262,7 +305,6 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
             
-            # 计算N天前的日期
             cursor.execute('''
                 SELECT 
                     analysis_id, filename, original_filename, video_path, result_video_path,
@@ -274,19 +316,19 @@ class DatabaseManager:
             
             results = []
             for row in cursor.fetchall():
-                # 将datetime对象转换为字符串，保持原始格式
                 created_at_str = row[9].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row[9], 'strftime') else str(row[9])
+                video_url = self._get_video_url(row[4])
                 results.append({
                     'analysis_id': row[0],
                     'filename': row[1],
                     'original_filename': row[2],
                     'video_path': row[3],
-                    'result_video_path': row[4] if row[4] else f"http://10.3.11.55:5000/api/video/results/{row[0]}_tracked.mp4",
+                    'result_video_path': video_url,
                     'video_info': json.loads(row[5]),
                     'total_tracks': row[6],
                     'tracked_ids': json.loads(row[7]),
                     'top_tracks': json.loads(row[8]),
-                    'created_at': created_at_str  # 使用转换后的字符串
+                    'created_at': created_at_str
                 })
             
             conn.close()
@@ -330,19 +372,19 @@ class DatabaseManager:
             
             results = []
             for row in cursor.fetchall():
-                # 将datetime对象转换为字符串，保持原始格式
                 created_at_str = row[9].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row[9], 'strftime') else str(row[9])
+                video_url = self._get_video_url(row[4])
                 results.append({
                     'analysis_id': row[0],
                     'filename': row[1],
                     'original_filename': row[2],
                     'video_path': row[3],
-                    'result_video_path': row[4] if row[4] else f"http://10.3.11.55:5000/api/video/results/{row[0]}_tracked.mp4",
+                    'result_video_path': video_url,
                     'video_info': json.loads(row[5]),
                     'total_tracks': row[6],
                     'tracked_ids': json.loads(row[7]),
                     'top_tracks': json.loads(row[8]),
-                    'created_at': created_at_str  # 使用转换后的字符串
+                    'created_at': created_at_str
                 })
             
             conn.close()
@@ -391,19 +433,19 @@ class DatabaseManager:
             
             results = []
             for row in cursor.fetchall():
-                # 将datetime对象转换为字符串，保持原始格式
                 created_at_str = row[9].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row[9], 'strftime') else str(row[9])
+                video_url = self._get_video_url(row[4])
                 results.append({
                     'analysis_id': row[0],
                     'filename': row[1],
                     'original_filename': row[2],
                     'video_path': row[3],
-                    'result_video_path': row[4] if row[4] else f"http://10.3.11.55:5000/api/video/results/{row[0]}_tracked.mp4",
+                    'result_video_path': video_url,
                     'video_info': json.loads(row[5]),
                     'total_tracks': row[6],
                     'tracked_ids': json.loads(row[7]),
                     'top_tracks': json.loads(row[8]),
-                    'created_at': created_at_str  # 使用转换后的字符串
+                    'created_at': created_at_str
                 })
             
             conn.close()
@@ -438,12 +480,15 @@ class DatabaseManager:
             
             row = cursor.fetchone()
             if row:
+                # 转换结果视频路径
+                video_url = self._get_video_url(row[4])
+                
                 result = {
                     'analysis_id': row[0],
                     'filename': row[1],
                     'original_filename': row[2],
                     'video_path': row[3],
-                    'result_video_path': row[4] if row[4] else f"http://10.3.11.55:5000/api/video/results/{row[0]}_tracked.mp4",
+                    'result_video_path': video_url,
                     'video_info': json.loads(row[5]),
                     'tracking_data': json.loads(row[6]),
                     'behavior_analysis': json.loads(row[7]),
@@ -453,16 +498,16 @@ class DatabaseManager:
                     'created_at': row[11]
                 }
                 
-                # 获取追踪详情（新：7个装配步骤）
+                # 获取追踪详情（新字段）
                 cursor.execute('''
                     SELECT track_id, total_time,
-                           gettool_time, robotpick_time, robotfix_time,
-                           handtighten_time, scan_time, electricgun_time, robotreturn_time
+                           robotpick_time, scan_time, robotfix_time,
+                           handtighten_time, electricgun_time, robotreturn_time
                     FROM track_details
                     WHERE analysis_id = %s
                     ORDER BY track_id
                 ''', (analysis_id,))
-
+                
                 track_details = []
                 for track_row in cursor.fetchall():
                     track_details.append({
@@ -475,7 +520,7 @@ class DatabaseManager:
                         'ElectricGun': track_row[6],
                         'RobotReturn': track_row[7]
                     })
-
+                
                 result['track_details'] = track_details
                 conn.close()
                 return result
@@ -485,6 +530,8 @@ class DatabaseManager:
             
         except Exception as e:
             print(f"获取分析结果失败: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def delete_analysis(self, analysis_id: str) -> bool:
