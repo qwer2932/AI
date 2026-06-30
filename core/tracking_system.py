@@ -340,21 +340,21 @@ class TrackingSystem:
             
             print(f"视频信息: {video_info}")
             
-            # 创建输出视频 - 保持原视频分辨率和帧率
-            output_path = f"results/{analysis_id}_tracked.avi"
-            output_width = width
-            output_height = height
-            # 使用 XVID 编码 AVI（兼容性更好）
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+            # 创建输出视频 - 使用 MP4 格式（H.264 编码），兼容所有现代浏览器
+            output_path = f"results/{analysis_id}_tracked.mp4"
+            output_width = min(width, 640)   # 适当提高分辨率，浏览器播放更清晰
+            output_height = min(height, 480)
+
+            # 尝试使用 H.264 编码（avc1），若不支持则回退到 mp4v
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')   # H.264
             out = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
-            
-            # 检查视频写入器是否成功初始化
+
             if not out.isOpened():
-                print(f"警告: XVID 编码器失败，尝试 MJPEG")
-                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                print("警告: avc1 编码器不可用，尝试 mp4v")
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 out = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
                 if not out.isOpened():
-                    print(f"错误: 无法创建视频写入器")
+                    print("错误: 无法创建视频写入器")
                     cap.release()
                     return None
             
@@ -502,7 +502,7 @@ class TrackingSystem:
                 'tracked_ids': tracked_ids,
                 'top_tracks': top_tracks,
                 'video_path': output_path,
-                'result_video_path': f"results/{analysis_id}_tracked.avi",  # 使用实际的 avi 文件
+                'result_video_path': f"results/{analysis_id}_tracked.mp4",  
                 'result': '分析完成'
             }
             
