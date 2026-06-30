@@ -56,6 +56,10 @@ class StepInference:
         self._gun_bbox_history = defaultdict(list)  # {person_id: [(area, frame_count), ...]}
         self._gun_size_stable = {}  # {person_id: True/False} 是否大小基本不变
         self._suspension_on_right = {}  # {person_id: True/False} 悬挂是否在右侧
+        # 上一帧 person 中心 x（用于判断是否向画面右侧移动）
+        self._prev_person_x = defaultdict(lambda: None)
+        # 上一帧 arm 中心 x（用于判断是否向画面右侧移动）
+        self._prev_arm_x = defaultdict(lambda: None)
         # 上一帧 机械手和悬挂 是否已经靠近在一起（已不再使用，保留为兼容）
         self._arm_susp_together = defaultdict(bool)
         # HandTighten 确认帧数
@@ -77,6 +81,8 @@ class StepInference:
         self._electricgun_active = defaultdict(int)
         # 记录 person 是否曾进入过 HandTighten（用于 ElectricGun 的前提判断）
         self._has_seen_handtighten = defaultdict(bool)
+        # 是否进入 RobotFix 阶段（兼容旧代码保留字段）
+        self._in_fix_phase = defaultdict(bool)
 
     def reset(self):
         """重置推理器状态（新的分析任务时调用）"""
@@ -89,6 +95,8 @@ class StepInference:
         self._gun_bbox_history.clear()
         self._gun_size_stable.clear()
         self._suspension_on_right.clear()
+        self._prev_person_x.clear()
+        self._prev_arm_x.clear()
         self._arm_susp_together.clear()
         self._in_fix_phase.clear()
         self._handtighten_frames.clear()
@@ -178,6 +186,8 @@ class StepInference:
         for person in persons:
             pid = person['track_id']
             person_pos = self._get_center(person['bbox'])
+            # 保存当前 person x 到上一帧（供下一帧判断方向用）
+            self._prev_person_x[pid] = person_pos[0]
 
             # 获取当前步骤
             current_step = self._current_step.get(pid)
@@ -233,16 +243,40 @@ class StepInference:
             self._suspension_on_right[pid] = susp_in_pick_zone
 
             # Step 1: RobotPick - 机械手和悬挂靠近 + 悬挂在画面右侧 1/5 区域
-            if arms and susp and persons and susp_in_pick_zone and detected_step is None:
+            # 保存当前 arm x 到上一帧（供 RobotReturn 判断方向用）
+            if arms:
                 arm_pos = self._get_center(arms[0]['bbox'])
+                self._prev_arm_x[pid] = arm_pos[0]
+            if arms and susp and susp_in_pick_zone and detected_step is None:
                 susp_pos = self._get_center(susp[0]['bbox'])
                 if self._is_near(arm_pos, susp_pos, frame_shape):
                     detected_step = "RobotPick"
 
             # Step 3: RobotFix - 悬挂在画面其他区域（机械手已持有悬挂向车移动）
             if susp and not susp_in_pick_zone and detected_step is None:
-                # 只要悬挂在画面中（机械手持有）就算 RobotFix
+                if arms:
+                    arm_pos = self._get_center(arms[0]['bbox'])
+                    # 保存当前 arm x 到上一帧（供 RobotReturn 判断方向用）
+                    self._prev_arm_x[pid] = arm_pos[0]
+                # 默认 → RobotFix
                 detected_step = "RobotFix"
+
+            # Step 6: RobotReturn - 循环末尾的收尾动作（取悬挂之前）
+            #   出现在 ElectricGun/HandTighten 之后，人带着机械手往画面右侧移动回去准备下一轮取悬挂
+            #   条件：上一帧是 ElectricGun/HandTighten + 人+机械手同时向右移动
+            if detected_step is None and arms:
+                prev_p = self._prev_person_x.get(pid)
+                prev_a = self._prev_arm_x.get(pid)
+                moving_right = (prev_p is not None and prev_a is not None and
+                                person_pos[0] > prev_p and arm_pos[0] > prev_a)
+                if moving_right and current_step in ("ElectricGun", "HandTighten"):
+                    detected_step = "RobotReturn"
+                    self._current_step[pid] = None
+                    self.last_step[pid] = "RobotReturn"
+                    self.step_frame_counts[pid]["RobotReturn"] += 1
+                    self._in_fix_phase[pid] = False
+                    result[pid] = "RobotReturn"
+                    continue
 
             # Step 2: Scan - 扫码枪出现在人手边（独立步骤）
             if detected_step is None and scanners and persons:
@@ -329,21 +363,6 @@ class StepInference:
                     # 电枪不在人手边 → 检查激活状态是否到期
                     if self._electricgun_active.get(pid, 0) > 0 and self.frame_count > self._electricgun_active_until.get(pid, 0):
                         self._electricgun_active[pid] = 0
-
-            # Step 6: RobotReturn - 机械手再次靠近悬挂（独立步骤）
-            if detected_step is None and susp and arms:
-                arm_pos = self._get_center(arms[0]['bbox'])
-                susp_pos = self._get_center(susp[0]['bbox'])
-                if self._is_near(arm_pos, susp_pos, frame_shape):
-                    detected_step = "RobotReturn"
-                    # 循环结束，重置步骤，下次从 RobotPick 开始
-                    self._current_step[pid] = None
-                    self.last_step[pid] = "RobotReturn"
-                    self.step_frame_counts[pid]["RobotReturn"] += 1
-                    # 重置 fix 阶段标记
-                    self._in_fix_phase[pid] = False
-                    result[pid] = "RobotReturn"
-                    continue
 
             # 如果本帧触发了 HandTighten 但被其他步骤抢先，记录 HandTighten 历史
             if handtighten_triggered_this_frame and detected_step != "HandTighten":

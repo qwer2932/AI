@@ -4,6 +4,7 @@
 DeepSORT追踪系统
 集成YOLOv8和DeepSORT进行人物追踪
 """
+from core.step_inference import StepInference
 
 import os
 import cv2
@@ -294,8 +295,7 @@ class TrackingSystem:
         return annotated_frame
     
     def analyze_video(self, video_path, analysis_id, progress_callback=None, step_inference=None):
-        """
-        分析视频文件
+        """分析视频文件
 
         Args:
             video_path: 视频文件路径
@@ -306,6 +306,9 @@ class TrackingSystem:
         Returns:
             result: 分析结果字典
         """
+        # 如果外部没传 step_inference，内部创建一个（这样视频上才有 Step 标签）
+        if step_inference is None:
+            step_inference = StepInference(proximity_threshold=0.30, warmup_frames=30)
         try:
             # 重置追踪状态，确保每次分析都从ID 1开始
             self.track_history = defaultdict(list)
