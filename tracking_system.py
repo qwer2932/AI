@@ -97,13 +97,14 @@ class TrackingSystem:
             colors.append(tuple(map(int, color)))
         return colors
     
-    def detect_and_track(self, frame):
+    def detect_and_track(self, frame, step_map=None):
         """
         对单帧图像进行检测和追踪
-        
+
         Args:
             frame: 输入图像帧
-            
+            step_map: 当前帧各 person 的步骤名 {person_track_id: step_name}（可选，用于在画面上写步骤）
+
         Returns:
             tuple: (处理后的图像, 检测结果, 追踪结果)
         """
@@ -193,7 +194,7 @@ class TrackingSystem:
                     })
             
             # 绘制结果
-            annotated_frame = self._draw_tracks(frame, tracked_objects)
+            annotated_frame = self._draw_tracks(frame, tracked_objects, step_map=step_map)
             
             return annotated_frame, detections, tracked_objects
         
@@ -240,10 +241,11 @@ class TrackingSystem:
         self.track_smoothing[track_id] = smoothed_bbox
         return smoothed_bbox
     
-    def _draw_tracks(self, frame, tracked_objects):
-        """在图像上绘制追踪结果 - 绘制所有行为类别"""
+    def _draw_tracks(self, frame, tracked_objects, step_map=None):
+        """在图像上绘制追踪结果 - 绘制所有行为类别
+        step_map: {person_track_id: step_name} 当前帧各 person 的步骤名（可选）"""
         annotated_frame = frame.copy()
-        
+
         for obj in tracked_objects:
             track_id = obj['track_id']
             x1, y1, x2, y2 = map(int, obj['bbox'])
@@ -251,25 +253,37 @@ class TrackingSystem:
             confidence = obj['confidence']
             
             # 绘制所有行为类别
-            if class_id in [0, 1, 2, 4]:
+            if class_id in [0, 1, 2, 3, 4, 5, 6]:
                 # 获取类别名称和颜色
                 class_name = self.class_names.get(class_id, f"Class_{class_id}")
                 color = self.colors[class_id % len(self.colors)]
                 
                 # 绘制边界框
                 cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                
+
                 # 绘制标签
                 label = f"ID:{track_id} {class_name} {confidence:.2f}"
                 label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-                
+
                 # 标签背景
-                cv2.rectangle(annotated_frame, (x1, y1 - label_size[1] - 10), 
+                cv2.rectangle(annotated_frame, (x1, y1 - label_size[1] - 10),
                              (x1 + label_size[0], y1), color, -1)
-                
+
                 # 标签文字
-                cv2.putText(annotated_frame, label, (x1, y1 - 5), 
+                cv2.putText(annotated_frame, label, (x1, y1 - 5),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                # 如果是 person 且本帧有步骤名，在标签下方再写一行步骤
+                if class_id == 0 and step_map and track_id in step_map:
+                    step_name = step_map[track_id]
+                    step_label = f"Step: {step_name}"
+                    step_size = cv2.getTextSize(step_label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                    sy1 = y2 + step_size[1] + 6
+                    sy2 = y2 + 6
+                    cv2.rectangle(annotated_frame, (x1, sy1 - step_size[1] - 6),
+                                 (x1 + step_size[0] + 6, sy2), (0, 140, 255), -1)
+                    cv2.putText(annotated_frame, step_label, (x1 + 3, sy1 - 6),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
                 # 绘制追踪轨迹
                 if track_id in self.track_history:
@@ -279,15 +293,16 @@ class TrackingSystem:
         
         return annotated_frame
     
-    def analyze_video(self, video_path, analysis_id, progress_callback=None):
+    def analyze_video(self, video_path, analysis_id, progress_callback=None, step_inference=None):
         """
         分析视频文件
-        
+
         Args:
             video_path: 视频文件路径
             analysis_id: 分析ID
             progress_callback: 进度回调函数
-            
+            step_inference: StepInference 实例（可选）。如果提供，每帧会同步跑步骤推理并把结果叠加到画面上
+
         Returns:
             result: 分析结果字典
         """
@@ -322,14 +337,13 @@ class TrackingSystem:
             
             print(f"视频信息: {video_info}")
             
-            # 创建输出视频 - 降低分辨率和质量以减小文件大小
+            # 创建输出视频 - 保持原视频分辨率和帧率
             output_path = f"results/{analysis_id}_tracked.avi"
-            # 进一步降低分辨率
-            output_width = min(width, 320)
-            output_height = min(height, 240)
+            output_width = width
+            output_height = height
             # 使用 XVID 编码 AVI（兼容性更好）
             fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            out = cv2.VideoWriter(output_path, fourcc, fps * 0.5, (output_width, output_height))  # 帧率也降低
+            out = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
             
             # 检查视频写入器是否成功初始化
             if not out.isOpened():
@@ -359,8 +373,36 @@ class TrackingSystem:
                 if progress_callback:
                     progress_callback(frame_count, total_frames, f"处理第 {frame_count} 帧", analysis_id)
                 
-                # 检测和追踪
-                annotated_frame, detections, tracked_objects = self.detect_and_track(frame)
+                # 同步跑步骤推理（如果传了 step_inference），得到当前帧各 person 的步骤名
+                # 注意：必须先跑追踪拿到 track_id，再喂给 step_inference
+                step_map = None
+                if step_inference is not None:
+                    try:
+                        annotated_frame_pre, detections_pre, tracked_objects_pre = self.detect_and_track(frame)
+                        # 用 tracked_objects 的 (track_id, bbox) 去给 detections 补 track_id
+                        step_dets = []
+                        for obj in tracked_objects_pre:
+                            x1, y1, x2, y2 = map(float, obj['bbox'])
+                            step_dets.append({
+                                'class_name': self.class_names.get(int(obj['class_id']), f"class_{int(obj['class_id'])}"),
+                                'track_id': int(obj['track_id']),
+                                'bbox': [x1, y1, x2, y2],
+                                'confidence': float(obj['confidence']),
+                            })
+                        step_map = step_inference.infer_step(frame.shape, step_dets) or {}
+                        # 用 step_map 重新画图
+                        annotated_frame = self._draw_tracks(frame, tracked_objects_pre, step_map=step_map)
+                        # 把值传回外层（避免再跑一次 detect_and_track）
+                        detections = detections_pre
+                        tracked_objects = tracked_objects_pre
+                    except Exception as _se:
+                        if frame_count == 1:
+                            print(f"[step_inference] 同步推理异常: {_se}")
+                        step_map = None
+
+                if step_map is None:
+                    # 正常路径（没传 step_inference 或异常）
+                    annotated_frame, detections, tracked_objects = self.detect_and_track(frame, step_map=step_map)
                 
                 # 存储每帧所有检测结果（供后置推理用）
                 frame_all_detections = []
@@ -417,8 +459,9 @@ class TrackingSystem:
                 })
                 
                 # 调整帧大小并写入输出视频
-                resized_frame = cv2.resize(annotated_frame, (output_width, output_height))
-                out.write(resized_frame)
+                if annotated_frame.shape[1] != output_width or annotated_frame.shape[0] != output_height:
+                    annotated_frame = cv2.resize(annotated_frame, (output_width, output_height))
+                out.write(annotated_frame)
             
             # 释放资源
             cap.release()

@@ -107,7 +107,7 @@ def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'wmv'}
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def analyze_behavior(tracking_result, video_info):
+def analyze_behavior(tracking_result, video_info, step_inference=None):
     """
     使用后置推理分析装配步骤
     根据每帧检测到的物体位置关系，判断当前处于哪个装配步骤
@@ -115,6 +115,7 @@ def analyze_behavior(tracking_result, video_info):
     Args:
         tracking_result: 包含 tracking_data, per_frame_detections 等
         video_info: 视频信息
+        step_inference: 已有的 StepInference 实例（可选）。如果提供，复用其状态；否则新建一个
 
     Returns:
         行为分析结果（7个装配步骤统计）
@@ -131,7 +132,7 @@ def analyze_behavior(tracking_result, video_info):
         classes = set(d.get('class_name') for d in per_frame_detections[0]['detections'])
         print(f"[DEBUG] 第一帧检测到的类别: {classes}")
 
-    inference = StepInference(proximity_threshold=0.30, warmup_frames=30)
+    inference = step_inference if step_inference is not None else StepInference(proximity_threshold=0.30, warmup_frames=30)
 
     # 逐帧推理
     for frame_data in per_frame_detections:
@@ -224,18 +225,24 @@ def run_analysis(analysis_id, filepath, original_filename=None):
                 print(f"分析 {analysis_id} 已恢复")
             update_progress(frame, total, msg, aid)
         
-        # 执行追踪分析
+        # 同步创建 StepInference，让 analyze_video 每帧实时画步骤
+        from step_inference import StepInference
+        step_inf = StepInference(proximity_threshold=0.30, warmup_frames=30)
+
+        # 执行追踪分析（同步步骤推理，视频上会实时叠加步骤名）
         result = tracking_system.analyze_video(
-            filepath, 
+            filepath,
             analysis_id,
-            progress_callback=progress_callback_with_pause
+            progress_callback=progress_callback_with_pause,
+            step_inference=step_inf
         )
-        
-        # 执行行为分析（使用后置推理）
+
+        # 执行行为分析（使用后置推理，复用同一个 step_inference 实例的状态）
         analysis_status['message'] = '正在分析行为数据...'
         behavior_result = analyze_behavior(
             result,          # 包含 tracking_data + per_frame_detections
-            result['video_info']
+            result['video_info'],
+            step_inference=step_inf
         )
         
         # 如果没有提供原始文件名，使用文件路径中的文件名
