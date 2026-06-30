@@ -5,6 +5,16 @@ Flask后端API - 支持前端视频追踪分析
 """
 
 import os
+import sys
+# 修复 Windows 下 stdout 默认 GBK 编码无法输出 Unicode 字符的问题
+if sys.platform == 'win32':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    except Exception:
+        pass
+
 import cv2
 import json
 import uuid
@@ -71,18 +81,22 @@ def init_tracking_system():
         tracking_system = TrackingSystem(model_path)
         print("追踪系统初始化成功")
         
-        # 初始化数据库管理器
+        # 初始化数据库管理器（可选，失败不影响主流程）
         print("正在初始化数据库管理器...")
-        db_manager = DatabaseManager(
-            host="localhost",
-            port=3306,
-            user="root",
-            password="111111",
-            database="ai_track_analysis"
-        )
-        print("数据库系统初始化成功")
-        print(f"db_manager 对象: {db_manager}")
-        print(f"db_manager 是否为 None: {db_manager is None}")
+        try:
+            db_manager = DatabaseManager(
+                host="localhost",
+                port=3306,
+                user="root",
+                password="111111",
+                database="ai_track_analysis"
+            )
+            print("数据库系统初始化成功")
+            print(f"db_manager 对象: {db_manager}")
+            print(f"db_manager 是否为 None: {db_manager is None}")
+        except Exception as db_e:
+            print(f"⚠ 数据库初始化失败（已跳过，分析结果将仅保存到本地文件）: {db_e}")
+            db_manager = None
     except Exception as e:
         print(f"系统初始化失败: {e}")
         import traceback
@@ -117,7 +131,7 @@ def analyze_behavior(tracking_result, video_info):
         classes = set(d.get('class_name') for d in per_frame_detections[0]['detections'])
         print(f"[DEBUG] 第一帧检测到的类别: {classes}")
 
-    inference = StepInference(proximity_threshold=0.30)
+    inference = StepInference(proximity_threshold=0.30, warmup_frames=30)
 
     # 逐帧推理
     for frame_data in per_frame_detections:
