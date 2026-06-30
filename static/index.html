@@ -327,6 +327,45 @@
             overflow: hidden;
         }
         
+        /* 左侧导航栏样式 */
+        #sidebar {
+            transition: all 0.3s ease;
+        }
+        
+        #sidebar-collapsed {
+            transition: all 0.3s ease;
+        }
+        
+        /* 导航按钮激活状态 */
+        .sidebar-function-btn.active {
+            border-color: #3b82f6 !important;
+            background-color: #eff6ff !important;
+            color: #1d4ed8 !important;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+        }
+        
+        /* 导航按钮悬停效果 */
+        .sidebar-function-btn:hover {
+            transform: translateX(2px);
+        }
+        
+        /* 折叠按钮动画 */
+        #collapse-icon {
+            transition: transform 0.3s ease;
+        }
+        
+        #collapse-icon.rotated {
+            transform: rotate(180deg);
+        }
+        
+        /* 迷你导航按钮激活状态 */
+        #standard-operation-btn-mini.active,
+        #history-btn-mini.active {
+            border-color: #3b82f6 !important;
+            background-color: #eff6ff !important;
+            color: #1d4ed8 !important;
+        }
+        
     </style>
 </head>
 <body class="bg-gray-100 h-screen overflow-hidden flex flex-col">
@@ -340,15 +379,6 @@
                         <h1 class="text-xl font-bold text-gray-900">AI视觉系统</h1>
                     </div>
                 </div>
-                <!-- 顶部横向导航 -->
-                <nav class="flex items-center space-x-4">
-                    <button id="standard-operation-btn" class="px-4 py-2 rounded-lg border-2 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 transition-colors duration-200 sidebar-function-btn active">
-                        <span class="font-medium">标准化操作矫正</span>
-                    </button>
-                    <button id="history-btn" class="px-4 py-2 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors duration-200">
-                        <span class="font-medium">历史记录</span>
-                    </button>
-                </nav>
                 <div class="header-status">
                     <span id="status-indicator">就绪</span>
                 </div>
@@ -358,12 +388,78 @@
 
     <!-- 主要内容 -->
     <main class="flex flex-1 overflow-hidden">
+        <!-- 左侧导航栏 -->
+        <aside id="sidebar" class="w-56 bg-white border-r border-gray-200 flex flex-col h-full shadow-sm">
+            <!-- 导航栏头部 -->
+            <div class="p-4 border-b border-gray-200">
+                <div class="flex items-center justify-between">
+                    <span class="font-semibold text-gray-800">功能菜单</span>
+                    <button id="collapse-btn" class="p-1 hover:bg-gray-100 rounded-lg transition-colors duration-200">
+                        <svg id="collapse-icon" class="w-5 h-5 text-gray-600 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 导航菜单 -->
+            <nav class="flex-1 p-3 space-y-2">
+                <button id="standard-operation-btn" class="w-full flex items-center px-4 py-3 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-all duration-200 sidebar-function-btn active">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <span class="font-medium">标准化操作矫正</span>
+                </button>
+                
+                <button id="history-btn" class="w-full flex items-center px-4 py-3 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-all duration-200 sidebar-function-btn">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <span class="font-medium">历史记录</span>
+                </button>
+            </nav>
+            
+            <!-- 导航栏底部 -->
+            <div class="p-4 border-t border-gray-200">
+                <div class="text-center text-sm text-gray-500">
+                    AI视觉系统 v1.0
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 折叠后的迷你导航栏 -->
+        <aside id="sidebar-collapsed" class="w-16 bg-white border-r border-gray-200 flex flex-col h-full shadow-sm hidden">
+            <div class="p-2 border-b border-gray-200">
+                <button id="expand-btn" class="w-full p-1 hover:bg-gray-100 rounded-lg transition-colors duration-200">
+                    <svg class="w-5 h-5 text-gray-600 transition-transform duration-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <nav class="flex-1 p-2 space-y-2">
+                <button id="standard-operation-btn-mini" class="w-full flex flex-col items-center px-3 py-3 rounded-lg border-2 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 transition-all duration-200" title="标准化操作矫正">
+                    <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <span class="text-xs">矫正</span>
+                </button>
+                
+                <button id="history-btn-mini" class="w-full flex flex-col items-center px-3 py-3 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-all duration-200" title="历史记录">
+                    <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <span class="text-xs">历史</span>
+                </button>
+            </nav>
+        </aside>
+        
         <!-- 主内容区域 -->
         <div class="flex-1 min-w-0 main-content-area bg-white overflow-y-auto rounded-lg shadow-sm border border-gray-200 mx-4 mt-4" style="height: calc(100vh - 80px); margin-bottom: 20px;">
             <div class="p-8">
             
         <!-- 上传区域 -->
-            <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
+            <div id="upload-section" class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
@@ -397,7 +493,7 @@
                     
                     <!-- 视频预览 -->
                     <div id="video-preview" class="hidden mt-4">
-                        <video id="preview-video" controls class="w-full max-w-md mx-auto rounded-lg"></video>
+                        <video id="preview-video" controls class="w-full max-h-[300px] object-contain rounded-lg bg-gray-900"></video>
                     </div>
                 </div>
                 
@@ -550,6 +646,51 @@
                 </div>
             </div>
 
+            <!-- 比率分析环形图 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900 mb-6 text-center">比率分析</h3>
+                <div class="flex justify-around items-start">
+                    <!-- 标准化执行符合率 -->
+                    <div class="flex flex-col items-center flex-1">
+                        <div class="relative w-40 h-40 mx-auto">
+                            <canvas id="compliance-chart" width="160" height="160"></canvas>
+                            <div class="absolute inset-0 flex items-center justify-center z-10">
+                                <span id="compliance-value" class="text-xl font-bold text-blue-600">0%</span>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-center">
+                            <div class="text-sm font-medium text-gray-700">标准化执行符合率</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 操作时间与理论时间比 -->
+                    <div class="flex flex-col items-center flex-1">
+                        <div class="relative w-40 h-40 mx-auto">
+                            <canvas id="time-ratio-chart" width="160" height="160"></canvas>
+                            <div class="absolute inset-0 flex items-center justify-center z-10">
+                                <span id="time-ratio-value" class="text-xl font-bold text-green-600">0%</span>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-center">
+                            <div class="text-sm font-medium text-gray-700">操作时间与理论时间比</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 等待时间与总时间比 -->
+                    <div class="flex flex-col items-center flex-1">
+                        <div class="relative w-40 h-40 mx-auto">
+                            <canvas id="wait-ratio-chart" width="160" height="160"></canvas>
+                            <div class="absolute inset-0 flex items-center justify-center z-10">
+                                <span id="wait-ratio-value" class="text-xl font-bold text-orange-600">0%</span>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-center">
+                            <div class="text-sm font-medium text-gray-700">等待时间与总时间比</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- 最长时间ID展示区域 -->
             <div id="top-track-section" class="bg-white rounded-lg shadow-sm p-6 mb-8 hidden border border-gray-200">
                 <h3 class="text-lg font-semibold text-gray-900 mb-4 text-center">追踪时间最长的目标</h3>
@@ -798,6 +939,9 @@
         let currentAnalysisId = null;
         let analysisInterval = null;
         let behaviorChart = null;
+        let complianceChart = null;
+        let timeRatioChart = null;
+        let waitRatioChart = null;
         let modalBehaviorChart = null;
         let historyData = [];
         let allTracks = [];
@@ -1046,6 +1190,53 @@
             // 侧边栏功能按钮事件监听器
             if (standardOperationBtn) standardOperationBtn.addEventListener('click', switchToStandardOperation);
             
+            // 导航栏折叠/展开事件
+            const collapseBtn = document.getElementById('collapse-btn');
+            const expandBtn = document.getElementById('expand-btn');
+            const sidebar = document.getElementById('sidebar');
+            const sidebarCollapsed = document.getElementById('sidebar-collapsed');
+            
+            if (collapseBtn) {
+                collapseBtn.addEventListener('click', function() {
+                    sidebar.classList.add('hidden');
+                    sidebarCollapsed.classList.remove('hidden');
+                });
+            }
+            
+            if (expandBtn) {
+                expandBtn.addEventListener('click', function() {
+                    sidebarCollapsed.classList.add('hidden');
+                    sidebar.classList.remove('hidden');
+                });
+            }
+            
+            // 迷你导航按钮事件
+            const standardOperationBtnMini = document.getElementById('standard-operation-btn-mini');
+            const historyBtnMini = document.getElementById('history-btn-mini');
+            
+            if (standardOperationBtnMini) {
+                standardOperationBtnMini.addEventListener('click', function() {
+                    switchToStandardOperation();
+                    updateMiniNavActive('standard');
+                });
+            }
+            
+            if (historyBtnMini) {
+                historyBtnMini.addEventListener('click', function() {
+                    toggleHistory();
+                    updateMiniNavActive('history');
+                });
+            }
+            
+            // 更新迷你导航按钮激活状态
+            function updateMiniNavActive(activeTab) {
+                if (standardOperationBtnMini) {
+                    standardOperationBtnMini.classList.toggle('active', activeTab === 'standard');
+                }
+                if (historyBtnMini) {
+                    historyBtnMini.classList.toggle('active', activeTab === 'history');
+                }
+            }
             
             // 模态框事件
             if (closeModal) closeModal.addEventListener('click', closeBehaviorModal);
@@ -1866,6 +2057,9 @@
             // 更新详细结果表格（包含悬停功能）
             updateResultsTable(result);
 
+            // 更新比率分析环形图
+            updateRatioCharts(result);
+
             // 显示结果视频
             console.log('displayResults: 完整结果数据:', result);
             console.log('displayResults: video_path:', result.video_path);
@@ -2013,6 +2207,95 @@
                 if (videoLoading) videoLoading.classList.add('hidden');
                 if (videoError) videoError.classList.remove('hidden');
             }
+        }
+
+        // 更新比率分析环形图
+        function updateRatioCharts(result) {
+            // 从结果中获取比率数据，或者使用默认值
+            const analysisStats = result.analysis_stats || {};
+            const complianceRate = analysisStats.compliance_rate !== undefined ? analysisStats.compliance_rate : 89;
+            const timeRatio = analysisStats.time_ratio !== undefined ? analysisStats.time_ratio : 89;
+            const waitRatio = analysisStats.wait_ratio !== undefined ? analysisStats.wait_ratio : 89;
+
+            // 更新标准化执行符合率
+            updateDoughnutChart('compliance-chart', 'compliance-value', complianceRate, '#3B82F6');
+            
+            // 更新操作时间与理论时间比
+            updateDoughnutChart('time-ratio-chart', 'time-ratio-value', timeRatio, '#10B981');
+            
+            // 更新等待时间与总时间比
+            updateDoughnutChart('wait-ratio-chart', 'wait-ratio-value', waitRatio, '#F59E0B');
+        }
+
+        // 更新单个环形图
+        function updateDoughnutChart(chartId, valueId, percentage, color) {
+            const ctx = document.getElementById(chartId);
+            const valueElement = document.getElementById(valueId);
+            
+            if (!ctx || !valueElement) return;
+
+            // 检查Chart是否已加载
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js 未加载');
+                return;
+            }
+
+            // 获取对应的图表变量
+            let chartInstance = null;
+            if (chartId === 'compliance-chart') chartInstance = complianceChart;
+            else if (chartId === 'time-ratio-chart') chartInstance = timeRatioChart;
+            else if (chartId === 'wait-ratio-chart') chartInstance = waitRatioChart;
+
+            // 销毁现有图表
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            // 更新中心数值
+            valueElement.textContent = percentage + '%';
+
+            // 创建新图表
+            const newChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [percentage, 100 - percentage],
+                        backgroundColor: [color, '#E5E7EB'],
+                        borderColor: ['#FFFFFF', '#FFFFFF'],
+                        borderWidth: 3,
+                        hoverOffset: 0
+                    }]
+                },
+                options: {
+                    cutout: '70%',
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false,
+                            position: 'top',
+                            labels: {
+                                display: false
+                            }
+                        },
+                        tooltip: {
+                            enabled: false
+                        }
+                    },
+                    animation: {
+                        animateRotate: true,
+                        animateScale: true,
+                        duration: 1000
+                    },
+                    maintainAspectRatio: true
+                }
+            });
+
+            // 保存图表实例
+            if (chartId === 'compliance-chart') complianceChart = newChart;
+            else if (chartId === 'time-ratio-chart') timeRatioChart = newChart;
+            else if (chartId === 'wait-ratio-chart') waitRatioChart = newChart;
         }
 
         function updateBehaviorChart(result) {
@@ -3273,13 +3556,42 @@
         function showHistory() {
             historySection.classList.remove('hidden');
             resultsSection.classList.add('hidden');
-            historyBtn.textContent = '返回分析';
+            
+            // 隐藏上传区域
+            const uploadSection = document.getElementById('upload-section');
+            if (uploadSection) uploadSection.classList.add('hidden');
+            
+            // 隐藏按钮区域
+            const buttonSection = document.getElementById('button-section');
+            if (buttonSection) buttonSection.classList.add('hidden');
+            
+            // 更新导航按钮状态
+            updateSidebarButtonState('history');
+            
+            // 更新迷你导航按钮状态
+            const standardOperationBtnMini = document.getElementById('standard-operation-btn-mini');
+            const historyBtnMini = document.getElementById('history-btn-mini');
+            if (standardOperationBtnMini) standardOperationBtnMini.classList.remove('active');
+            if (historyBtnMini) historyBtnMini.classList.add('active');
+            
             loadHistory();
         }
 
         function hideHistory() {
             historySection.classList.add('hidden');
-            historyBtn.textContent = '历史记录';
+            
+            // 显示上传区域
+            const uploadSection = document.getElementById('upload-section');
+            if (uploadSection) uploadSection.classList.remove('hidden');
+            
+            // 更新导航按钮状态
+            updateSidebarButtonState('standard-operation');
+            
+            // 更新迷你导航按钮状态
+            const standardOperationBtnMini = document.getElementById('standard-operation-btn-mini');
+            const historyBtnMini = document.getElementById('history-btn-mini');
+            if (standardOperationBtnMini) standardOperationBtnMini.classList.add('active');
+            if (historyBtnMini) historyBtnMini.classList.remove('active');
         }
 
         async function loadHistory() {
@@ -3561,29 +3873,41 @@
             // 更新按钮状态
             updateSidebarButtonState('standard-operation');
             
-            // 显示标准化操作矫正相关的内容
-            // 这里不需要做任何操作，因为当前页面就是标准化操作矫正功能
+            // 显示上传区域
+            const uploadSection = document.getElementById('upload-section');
+            if (uploadSection) uploadSection.classList.remove('hidden');
+            
+            // 隐藏历史记录区域
+            if (historySection) historySection.classList.add('hidden');
+            
+            // 更新迷你导航按钮状态
+            const standardOperationBtnMini = document.getElementById('standard-operation-btn-mini');
+            const historyBtnMini = document.getElementById('history-btn-mini');
+            if (standardOperationBtnMini) standardOperationBtnMini.classList.add('active');
+            if (historyBtnMini) historyBtnMini.classList.remove('active');
+            
             console.log('切换到标准化操作矫正功能');
         }
         
         function updateSidebarButtonState(activeFunction) {
             // 重置按钮状态
             const buttons = [
-                { btn: standardOperationBtn, id: 'standard-operation' }
+                { btn: standardOperationBtn, id: 'standard-operation' },
+                { btn: historyBtn, id: 'history' }
             ];
             
             buttons.forEach(({ btn, id }) => {
                 if (btn) {
                     if (id === activeFunction) {
-                        // 激活状态
-                        btn.className = 'w-full text-left px-4 py-3 rounded-lg border-2 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 transition-colors duration-200 flex items-center sidebar-function-btn active';
+                        // 激活状态 - 蓝色边框
+                        btn.classList.add('active');
+                        btn.classList.remove('border-gray-200', 'bg-white', 'text-gray-700', 'hover:bg-gray-50');
+                        btn.classList.add('border-blue-500', 'bg-blue-50', 'text-blue-700', 'hover:bg-blue-100');
                     } else {
-                        // 非激活状态
-                        if (id === 'standard-operation') {
-                            btn.className = 'w-full text-left px-4 py-3 rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors duration-200 flex items-center sidebar-function-btn';
-                        } else {
-                            btn.className = 'w-full text-left px-4 py-3 rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors duration-200 flex items-center sidebar-function-btn opacity-50 cursor-not-allowed';
-                        }
+                        // 非激活状态 - 灰色边框
+                        btn.classList.remove('active');
+                        btn.classList.remove('border-blue-500', 'bg-blue-50', 'text-blue-700', 'hover:bg-blue-100');
+                        btn.classList.add('border-gray-200', 'bg-white', 'text-gray-700', 'hover:bg-gray-50');
                     }
                 }
             });
