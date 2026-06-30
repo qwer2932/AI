@@ -119,7 +119,7 @@ class TrackingSystem:
                 class_ids = results.boxes.cls.cpu().numpy().astype(int)
                 
                 for i, (box, conf, cls_id) in enumerate(zip(boxes, confidences, class_ids)):
-                    if conf >= self.conf_threshold and cls_id in [0, 1, 2, 4]:  # 追踪所有行为类别，排除车辆
+                    if conf >= self.conf_threshold and cls_id in [0, 1, 2, 3, 4, 5, 6]:  # 追踪所有行为类别
                         # 转换为DeepSORT格式 (x1, y1, w, h)
                         x1, y1, x2, y2 = box
                         w, h = x2 - x1, y2 - y1
@@ -132,7 +132,7 @@ class TrackingSystem:
                 # 为每个检测分配或更新追踪ID - 处理所有行为类别
                 for i, ((x1, y1, w, h), conf, cls_id) in enumerate(detections):
                     # 处理所有行为类别 (0, 1, 2, 4)
-                    if cls_id not in [0, 1, 2, 4]:
+                    if cls_id not in [0, 1, 2, 3, 4, 5, 6]:
                         continue
                         
                     # 检查是否与现有追踪匹配
