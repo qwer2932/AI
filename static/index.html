@@ -372,15 +372,12 @@
     <!-- 头部标题 -->
     <header class="header-enhanced flex-shrink-0">
         <div class="w-full px-6 py-3">
-            <div class="flex items-center justify-between">
+            <div class="flex items-center">
                 <div class="flex items-center space-x-4 header-title">
                     <!-- 系统标题 -->
                     <div>
                         <h1 class="text-xl font-bold text-gray-900">AI视觉系统</h1>
                     </div>
-                </div>
-                <div class="header-status">
-                    <span id="status-indicator">就绪</span>
                 </div>
             </div>
         </div>
@@ -1878,7 +1875,6 @@
 
                 // 开始分析
                 updateProgress(10, '开始分析...');
-                alert('开始发送分析请求...');
                 const analyzeResponse = await fetch('/api/analyze', {
                     method: 'POST',
                     headers: {
@@ -1890,7 +1886,6 @@
                         analysis_id: currentAnalysisId
                     })
                 });
-                alert('分析请求已发送');
 
                 if (!analyzeResponse.ok) {
                     throw new Error('分析启动失败');
@@ -2660,7 +2655,9 @@
         }
 
         function updateStatus(message) {
-            statusIndicator.textContent = message;
+            if (statusIndicator) {
+                statusIndicator.textContent = message;
+            }
         }
 
         // 最长时间ID卡片相关函数
@@ -3885,6 +3882,26 @@
             const historyBtnMini = document.getElementById('history-btn-mini');
             if (standardOperationBtnMini) standardOperationBtnMini.classList.add('active');
             if (historyBtnMini) historyBtnMini.classList.remove('active');
+            
+            // 如果已有视频文件，重新显示按钮区域和视频预览
+            if (fileInput && fileInput.files && fileInput.files.length > 0) {
+                const buttonSection = document.getElementById('button-section');
+                if (buttonSection) buttonSection.classList.remove('hidden');
+                
+                // 显示分析按钮，隐藏批量分析按钮
+                if (analyzeBtn) analyzeBtn.classList.remove('hidden');
+                if (batchAnalyzeUploadBtn) batchAnalyzeUploadBtn.classList.add('hidden');
+                
+                // 显示视频预览
+                if (videoPreview) videoPreview.classList.remove('hidden');
+                if (uploadContent) uploadContent.classList.add('hidden');
+            }
+            
+            // 如果有分析结果，重新显示分析结果区域
+            if (currentAnalysisId) {
+                if (resultsSection) resultsSection.classList.remove('hidden');
+                if (progressSection) progressSection.classList.add('hidden');
+            }
             
             console.log('切换到标准化操作矫正功能');
         }
