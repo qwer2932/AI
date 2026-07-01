@@ -1,0 +1,45 @@
+﻿============================================================
+AI瑙嗛杩借釜鍒嗘瀽绯荤粺
+============================================================
+妯″瀷璺緞: D:\aiwith\AI\best.pt
+妯″瀷鏂囦欢瀛樺湪: True
+python : D:\anaconda3\Lib\site-packages\deep_sort_realtime\embedder\embedder_py
+torch.py:6: UserWarning: pkg_resources is deprecated as an API. See https://set
+uptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slat
+ed for removal as early as 2025-11-30. Refrain from using this package or pin t
+o Setuptools<81.
+所在位置 行:1 字符: 149
++ ... ost "已停止旧服务" ; Set-Location d:\aiwith\AI ; python run.py 2>&1 | Out-F ...
++                                                ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\anaconda3\Li... Setuptools<81. 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  import pkg_resources
+妯″瀷鍔犺浇鎴愬姛: D:\aiwith\AI\best.pt
+绫诲埆鏁伴噺: 7
+DeepSORT鍙敤: True
+杩借釜绯荤粺鍒濆鍖栨垚鍔?
+姝ｅ湪鍒濆鍖栨暟鎹簱绠＄悊鍣?..
+鈿?鏁版嵁搴撳垵濮嬪寲澶辫触锛堝凡璺宠繃锛屽垎鏋愮粨鏋滃皢浠呬繚瀛樺埌鏈湴鏂囦欢锛? (1045, "Access denied for user 'root'@'localhost' (using password: YES)")
+鍚姩Web鏈嶅姟鍣?..
+============================================================
+璁块棶鍦板潃:
+  鏈満璁块棶: http://localhost:5000
+  灞€鍩熺綉璁块棶: http://10.3.11.39:5000
+============================================================
+灞€鍩熺綉璁块棶璇存槑:
+1. 纭繚闃茬伀澧欏厑璁?000绔彛璁块棶
+2. 鍏朵粬璁惧闇€瑕佷笌鏈嶅姟鍣ㄥ湪鍚屼竴灞€鍩熺綉
+3. 鍦ㄥ叾浠栬澶囨祻瑙堝櫒涓緭鍏ヤ笂杩板眬鍩熺綉鍦板潃
+============================================================
+鎸?Ctrl+C 鍋滄鏈嶅姟鍣?
+============================================================
+ * Serving Flask app 'app'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment
+. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.3.11.39:5000
+Press CTRL+C to quit
