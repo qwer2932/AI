@@ -2086,12 +2086,18 @@
                     if (videoPath) {
                         // 处理视频路径：如果是相对路径，转换为完整URL
                         let finalVideoPath = videoPath;
-                        if (videoPath.startsWith('results/')) {
-                            // 相对路径，转换为完整URL
-                            finalVideoPath = `http://${serverHost}/api/video/results/${videoPath.replace('results/', '')}`;
-                        } else if (!videoPath.startsWith('http')) {
-                            // 其他非HTTP路径，也转换为完整URL
-                            finalVideoPath = `http://${serverHost}/api/video/results/${videoPath}`;
+                        // 如果已经是完整URL，直接使用
+                        if (videoPath.startsWith('http')) {
+                            finalVideoPath = videoPath;
+                        } 
+                        // 如果路径包含 'results/'，提取文件名，直接用 /results/ 访问
+                        else if (videoPath.includes('results/')) {
+                            const filename = videoPath.split('/').pop();
+                            finalVideoPath = `http://${serverHost}/results/${filename}`;
+                        } 
+                        // 其他情况，直接用 /results/ 前缀
+                        else {
+                            finalVideoPath = `http://${serverHost}/results/${videoPath}`;
                         }
                     
                     console.log('displayResults: 使用完整视频URL:', finalVideoPath);
@@ -3953,9 +3959,7 @@
         <div class="max-w-7xl mx-auto px-6">
             <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-4">
-                    <div class="text-sm text-gray-600">
-                        © 2025 视频分析系统
-                    </div>
+                    <!-- 这里已经被删除 -->
                     <div class="text-xs text-gray-500">
                         智能行为分析与数据可视化平台
                     </div>
