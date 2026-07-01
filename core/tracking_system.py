@@ -4,7 +4,6 @@
 DeepSORT追踪系统
 集成YOLOv8和DeepSORT进行人物追踪
 """
-from core.step_inference import StepInference
 
 import os
 import cv2
@@ -295,7 +294,8 @@ class TrackingSystem:
         return annotated_frame
     
     def analyze_video(self, video_path, analysis_id, progress_callback=None, step_inference=None):
-        """分析视频文件
+        """
+        分析视频文件
 
         Args:
             video_path: 视频文件路径
@@ -306,9 +306,15 @@ class TrackingSystem:
         Returns:
             result: 分析结果字典
         """
-        # 如果外部没传 step_inference，内部创建一个（这样视频上才有 Step 标签）
+        # 如果调用方没传 step_inference，自动创建一个（保证视频有步骤标签）
         if step_inference is None:
-            step_inference = StepInference(proximity_threshold=0.30, warmup_frames=30)
+            try:
+                from core.step_inference import StepInference
+                step_inference = StepInference(proximity_threshold=0.30, warmup_frames=30)
+                print(f"[tracking_system] step_inference 自动创建成功: {step_inference}")
+            except Exception as _e:
+                print(f"[tracking_system] step_inference 自动创建失败: {_e}")
+                step_inference = None
         try:
             # 重置追踪状态，确保每次分析都从ID 1开始
             self.track_history = defaultdict(list)
@@ -340,21 +346,21 @@ class TrackingSystem:
             
             print(f"视频信息: {video_info}")
             
-            # 创建输出视频 - 使用 MP4 格式（H.264 编码），兼容所有现代浏览器
-            output_path = f"results/{analysis_id}_tracked.mp4"
-            output_width = min(width, 640)   # 适当提高分辨率，浏览器播放更清晰
-            output_height = min(height, 480)
-
-            # 尝试使用 H.264 编码（avc1），若不支持则回退到 mp4v
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')   # H.264
+            # 创建输出视频 - 保持原视频分辨率和帧率
+            output_path = f"results/{analysis_id}_tracked.avi"
+            output_width = width
+            output_height = height
+            # 使用 XVID 编码 AVI（兼容性更好）
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')
             out = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
-
+            
+            # 检查视频写入器是否成功初始化
             if not out.isOpened():
-                print("警告: avc1 编码器不可用，尝试 mp4v")
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                print(f"警告: XVID 编码器失败，尝试 MJPEG")
+                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                 out = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
                 if not out.isOpened():
-                    print("错误: 无法创建视频写入器")
+                    print(f"错误: 无法创建视频写入器")
                     cap.release()
                     return None
             
@@ -502,7 +508,7 @@ class TrackingSystem:
                 'tracked_ids': tracked_ids,
                 'top_tracks': top_tracks,
                 'video_path': output_path,
-                'result_video_path': f"results/{analysis_id}_tracked.mp4",  
+                'result_video_path': f"results/{analysis_id}_tracked.avi",  # 使用实际的 avi 文件
                 'result': '分析完成'
             }
             
