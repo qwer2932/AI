@@ -935,6 +935,7 @@
         // 全局变量
         let currentAnalysisId = null;
         let analysisInterval = null;
+        let isAnalyzing = false;
         let behaviorChart = null;
         let complianceChart = null;
         let timeRatioChart = null;
@@ -1843,6 +1844,9 @@
                 analyzeBtn.textContent = '分析中...';
                 console.log('开始分析 - 按钮状态已设置为禁用');
                 
+                // 设置分析状态
+                isAnalyzing = true;
+                
                 // 显示进度区域
                 progressSection.classList.remove('hidden');
                 updateProgress(0, '正在上传视频...');
@@ -2032,10 +2036,13 @@
             document.getElementById('analysis-time').textContent = duration.toFixed(1) + 's';
             document.getElementById('video-duration').textContent = duration.toFixed(1) + 's';
 
+            // 设置分析完成状态
+            isAnalyzing = false;
+            
             // 显示结果区域
             resultsSection.classList.remove('hidden');
             progressSection.classList.add('hidden');
-
+            
             // 显示按钮区域，并确保按钮状态正确
             const buttonSection = document.getElementById('button-section');
             buttonSection.classList.remove('hidden');
@@ -3505,7 +3512,8 @@
                 analysisInterval = null;
             }
             
-            // 重置暂停状态
+            // 重置分析状态
+            isAnalyzing = false;
             isPaused = false;
             
             // 重置按钮状态
@@ -3897,8 +3905,15 @@
                 if (uploadContent) uploadContent.classList.add('hidden');
             }
             
-            // 如果有分析结果，重新显示分析结果区域
-            if (currentAnalysisId) {
+            // 如果正在分析中，恢复进度条显示
+            if (isAnalyzing && currentAnalysisId) {
+                if (progressSection) progressSection.classList.remove('hidden');
+                if (resultsSection) resultsSection.classList.add('hidden');
+                // 显示暂停和终止按钮
+                if (pauseResumeBtn) pauseResumeBtn.classList.remove('hidden');
+                if (stopAnalysisBtn) stopAnalysisBtn.classList.remove('hidden');
+            } else if (currentAnalysisId) {
+                // 如果有分析结果但不在分析中，显示结果区域
                 if (resultsSection) resultsSection.classList.remove('hidden');
                 if (progressSection) progressSection.classList.add('hidden');
             }
