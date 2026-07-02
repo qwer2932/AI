@@ -10,7 +10,6 @@ import time
 import threading
 from datetime import datetime
 
-# 导入 core.state 模块（不要直接导入变量）
 import core.state
 from core.tracking_system import TrackingSystem
 from models import DatabaseManager
@@ -54,13 +53,14 @@ def init_tracking_system():
 
 def extract_cycles_from_step_sequence(per_frame_step_maps, fps):
     """
-    从每帧的步骤映射序列中提取所有循环（包括不完整的循环）。
-    每帧 step_map 格式: {track_id: step_name} 或 {}
-    由于只有一个实际工人，我们将所有track的步骤按时间顺序合并。
-    循环定义：从 RobotPick 开始，到 RobotReturn 结束（如果视频结束前未完成，视为不完整循环）。
+    从每帧的步骤映射序列中提取所有循环。
+    固定 RobotPick 为循环开始，RobotReturn 为循环结束。
+    只有同时包含 RobotPick 且以 RobotReturn 结束的循环才标记为完整。
+    缺失步骤时间记为0。
     """
     step_order = ["RobotPick", "Scan", "RobotFix", "HandTighten", "ElectricGun", "RobotReturn"]
-    step_sequence = []  # 元素为 (帧索引, step_name)
+    # 构建时间序列
+    step_sequence = []
     for frame_idx, step_map in enumerate(per_frame_step_maps, start=1):
         step = None
         for track_id, s in step_map.items():
@@ -70,108 +70,136 @@ def extract_cycles_from_step_sequence(per_frame_step_maps, fps):
         if step:
             step_sequence.append((frame_idx, step))
 
+    if not step_sequence:
+        return []
+
     cycles = []
-    current_cycle = {'start_frame': None, 'end_frame': None, 'steps': {step: None for step in step_order}}
-    expected_idx = 0
-    cycle_start_frame = None
-    step_start_frame = None
+    current_cycle = None  # {start_frame, step_frames: {step: start_frame}}
+    expected_idx = None
 
     for frame_idx, step in step_sequence:
-        if step not in step_order:
-            continue
-
-        # 如果当前是期望的下一步
-        if step == step_order[expected_idx]:
-            if expected_idx == 0:
-                # 开始新循环
-                cycle_start_frame = frame_idx
-                current_cycle['start_frame'] = cycle_start_frame
-                current_cycle['steps'] = {s: None for s in step_order}
-                step_start_frame = frame_idx
+        if step == "RobotPick":
+            # 遇到 RobotPick，强制开始新循环
+            if current_cycle is not None:
+                # 保存当前循环为不完整（因为被新 RobotPick 打断）
+                end_frame = frame_idx - 1
+                step_durations = {}
+                for s in step_order:
+                    if s in current_cycle['step_frames']:
+                        start = current_cycle['step_frames'][s]
+                        next_s = step_order[(step_order.index(s) + 1) % len(step_order)]
+                        if next_s in current_cycle['step_frames']:
+                            end = current_cycle['step_frames'][next_s] - 1
+                        else:
+                            end = end_frame
+                        duration = end - start + 1
+                        step_durations[s] = duration
+                    else:
+                        step_durations[s] = 0
+                total_frames = end_frame - current_cycle['start_frame'] + 1
+                if total_frames > 0:
+                    step_sec = {k: (v / fps if v is not None else 0.0) for k, v in step_durations.items()}
+                    # 检查是否所有步骤时间都接近0
+                    has_any_step = any(v > 0.1 for v in step_sec.values())
+                    if has_any_step:
+                        # 被新 RobotPick 打断，循环不完整
+                        cycles.append({
+                            'start_frame': current_cycle['start_frame'],
+                            'end_frame': end_frame,
+                            'total_frames': total_frames,
+                            'total_time': total_frames / fps,
+                            'steps': step_sec,
+                            'complete': False   # 明确标记不完整
+                        })
+            # 开始新循环
+            current_cycle = {
+                'start_frame': frame_idx,
+                'step_frames': {'RobotPick': frame_idx}
+            }
+            expected_idx = 1  # 期望 Scan
+        else:
+            if current_cycle is not None:
+                if step == step_order[expected_idx]:
+                    current_cycle['step_frames'][step] = frame_idx
+                    if step == "RobotReturn":
+                        # 到达 RobotReturn，完整循环结束
+                        end_frame = frame_idx
+                        step_durations = {}
+                        for s in step_order:
+                            if s in current_cycle['step_frames']:
+                                start = current_cycle['step_frames'][s]
+                                next_s = step_order[(step_order.index(s) + 1) % len(step_order)]
+                                if next_s in current_cycle['step_frames']:
+                                    end = current_cycle['step_frames'][next_s] - 1
+                                else:
+                                    end = end_frame
+                                duration = end - start + 1
+                                step_durations[s] = duration
+                            else:
+                                step_durations[s] = 0
+                        total_frames = end_frame - current_cycle['start_frame'] + 1
+                        step_sec = {k: (v / fps if v is not None else 0.0) for k, v in step_durations.items()}
+                        has_any_step = any(v > 0.001 for v in step_sec.values())
+                        if has_any_step:
+                            cycles.append({
+                                'start_frame': current_cycle['start_frame'],
+                                'end_frame': end_frame,
+                                'total_frames': total_frames,
+                                'total_time': total_frames / fps,
+                                'steps': step_sec,
+                                'complete': True   # 到达 RobotReturn，完整
+                            })
+                        # 重置循环
+                        current_cycle = None
+                        expected_idx = None
+                    else:
+                        expected_idx = (expected_idx + 1) % len(step_order)
+                else:
+                    # 步骤不是期望的步骤，忽略（但如果是 RobotPick 已在上面处理）
+                    pass
             else:
-                # 计算上一个步骤的持续时间（帧数）
-                prev_step = step_order[expected_idx - 1]
-                if current_cycle['steps'][prev_step] is None:
-                    current_cycle['steps'][prev_step] = frame_idx - step_start_frame
+                # 没有活动循环，且当前不是 RobotPick
+                # 说明上一个循环刚结束（或视频开始处），现在遇到非 RobotPick
+                if step in step_order:
+                    current_cycle = {
+                        'start_frame': frame_idx,
+                        'step_frames': {step: frame_idx}
+                    }
+                    idx = step_order.index(step)
+                    expected_idx = (idx + 1) % len(step_order)
+                else:
+                    current_cycle = None
+                    expected_idx = None
 
-            step_start_frame = frame_idx
-
-            # 如果已经是最后一个步骤（RobotReturn），则完成一个循环
-            if expected_idx == len(step_order) - 1:
-                # 最后一个步骤的持续时间
-                current_cycle['steps'][step] = frame_idx - step_start_frame + 1  # 包含当前帧
-                current_cycle['end_frame'] = frame_idx
-                # 计算循环总帧数（跨度）
-                total_frames = current_cycle['end_frame'] - current_cycle['start_frame'] + 1
-                # 转换为秒
-                step_sec = {k: (v / fps if v is not None else 0.0) for k, v in current_cycle['steps'].items()}
+    # 视频结束，如果还有活动循环，保存为不完整
+    if current_cycle is not None:
+        end_frame = step_sequence[-1][0] if step_sequence else 0
+        step_durations = {}
+        for s in step_order:
+            if s in current_cycle['step_frames']:
+                start = current_cycle['step_frames'][s]
+                next_s = step_order[(step_order.index(s) + 1) % len(step_order)]
+                if next_s in current_cycle['step_frames']:
+                    end = current_cycle['step_frames'][next_s] - 1
+                else:
+                    end = end_frame
+                duration = end - start + 1
+                step_durations[s] = duration
+            else:
+                step_durations[s] = 0
+        total_frames = end_frame - current_cycle['start_frame'] + 1
+        if total_frames > 0:
+            step_sec = {k: (v / fps if v is not None else 0.0) for k, v in step_durations.items()}
+            has_any_step = any(v > 0.001 for v in step_sec.values())
+            if has_any_step:
                 cycles.append({
                     'start_frame': current_cycle['start_frame'],
-                    'end_frame': current_cycle['end_frame'],
+                    'end_frame': end_frame,
                     'total_frames': total_frames,
                     'total_time': total_frames / fps,
                     'steps': step_sec,
-                    'complete': True
+                    'complete': False   # 视频结束未到达 RobotReturn，不完整
                 })
-                # 重置，准备下一个循环
-                expected_idx = 0
-                current_cycle = {'start_frame': None, 'end_frame': None, 'steps': {}}
-                cycle_start_frame = None
-                continue  # 当前帧已处理，跳过下面的更新
-
-            expected_idx += 1
-
-        else:
-            # 如果步骤不匹配期望，但可能是噪声；如果是 RobotPick，则重新开始循环
-            if step == step_order[0]:
-                # 如果有未完成的循环（已记录了一些步骤），先保存为不完整循环
-                if current_cycle['start_frame'] is not None and not current_cycle.get('complete', False):
-                    # 结束当前不完整循环，以当前帧的前一帧作为结束
-                    # 但更合理的是以前一个步骤结束帧作为结束，但这里简单处理，记录当前循环的起始和已记录步骤
-                    # 为了简单，我们放弃之前未完成的循环，重新开始（因为新的RobotPick意味着前一个循环被丢弃）
-                    pass  # 我们直接覆盖，因为可能旧循环不完整，以新的为准
-                # 重新开始循环
-                cycle_start_frame = frame_idx
-                current_cycle = {
-                    'start_frame': cycle_start_frame,
-                    'end_frame': None,
-                    'steps': {s: None for s in step_order},
-                    'complete': False
-                }
-                step_start_frame = frame_idx
-                expected_idx = 1  # 下一个期望是 Scan
-                continue  # 当前帧作为 RobotPick 已处理，但我们需要记录当前步骤的时间，所以仍需处理，但为了逻辑清晰，用 continue 并手动设置
-
-            # 其他不匹配步骤，可能是噪声，忽略
-
-    # 循环结束后，如果有未完成的循环（已开始但未结束），也保存
-    if current_cycle.get('start_frame') is not None and not current_cycle.get('complete', False):
-        # 补充缺失步骤的时间为0，结束帧为最后一帧
-        # 计算已记录步骤的时间，总跨度到视频结束
-        last_frame = per_frame_step_maps[-1]  # 最后一个步骤的帧索引（但这里没有，我们使用当前循环中记录的最后帧）
-        # 用当前循环中最后记录的步骤的帧作为结束（临时）
-        # 简单处理：使用最后一个步骤的帧作为结束帧（如果有），否则使用 start_frame
-        end_frame = frame_idx if 'frame_idx' in locals() else cycle_start_frame
-        # 查找已记录步骤中最大的帧数（这里我们没有保存每步骤的帧，但可用步骤起始帧，但为了简便，我们把结束帧设为 start_frame + 一些假设）
-        # 更合理的是取已记录步骤中的最大帧，但这里我们没有记录，所以用当前循环中最后一个步骤的帧（即上次记录的 step_start_frame）
-        # 由于我们没有保存步骤帧，我们可以近似：如果已记录步骤，使用最后一个步骤的起始帧+持续时间
-        # 简单起见，将未完成循环视为从 start_frame 到当前帧（视频最后处理的帧）
-        end_frame = frame_idx if 'frame_idx' in locals() else cycle_start_frame
-        # 更新 steps 中缺失的步骤为 None（表示未出现）
-        # 计算总跨度
-        total_frames = end_frame - current_cycle['start_frame'] + 1
-        step_sec = {}
-        for k in step_order:
-            val = current_cycle['steps'].get(k, None)
-            step_sec[k] = (val / fps if val is not None else 0.0)
-        cycles.append({
-            'start_frame': current_cycle['start_frame'],
-            'end_frame': end_frame,
-            'total_frames': total_frames,
-            'total_time': total_frames / fps,
-            'steps': step_sec,
-            'complete': False
-        })
 
     return cycles
 
@@ -192,8 +220,7 @@ def analyze_behavior(tracking_result, video_info, fps):
             detections=frame_data['detections']
         )
 
-    step_summary = inference.get_summary(fps=fps)  # 返回帧数
-    # 转换为秒（保留原始track统计，可能仍用于其他）
+    step_summary = inference.get_summary(fps=fps)
     track_behaviors = {}
     for track_id, steps in step_summary.items():
         total_frames = steps.pop('_total', 0)
@@ -216,8 +243,8 @@ def analyze_behavior(tracking_result, video_info, fps):
             {**{'track_id': int(tid)}, **{k: float(v) for k, v in beh.items()}}
             for tid, beh in sorted_tracks
         ],
-        'cycles': cycles,          # 所有提取到的循环列表
-        'cycle_data': cycles[0] if cycles else {}   # 第一个循环（兼容旧前端）
+        'cycles': cycles,
+        'cycle_data': cycles[0] if cycles else {}
     }
 
 
