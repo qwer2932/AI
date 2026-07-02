@@ -2042,7 +2042,8 @@
                     } else if (pollCount >= maxPolls) {
                         console.error('分析超时');
                         clearInterval(analysisInterval);
-                        resetAnalysis();
+                        updateProgress(Math.max(status.progress || 0, 0), status.message || '分析中...');
+                        updateStatus(status.message || '分析中...');
                     } else {
                         // 更新进度
                         const progress = status.progress || 0;
@@ -3295,8 +3296,7 @@
             analyzeBtn.textContent = '开始分析';
             console.log('重置分析 - 按钮状态已恢复');
             
-            // 隐藏进度区域和模态框
-            progressSection.classList.add('hidden');
+            // 隐藏模态框，但保留进度区域
             behaviorModal.classList.add('hidden');
             topTrackSection.classList.add('hidden');
             
