@@ -380,6 +380,7 @@ class TrackingSystem:
             tracking_data = {}
             frame_data = []
             per_frame_detections = []  # 每帧所有检测结果，供后置推理用
+            per_frame_step_maps = []   # 新增：每帧的步骤映射
 
             frame_count = 0
 
@@ -394,13 +395,12 @@ class TrackingSystem:
                 if progress_callback:
                     progress_callback(frame_count, total_frames, f"处理第 {frame_count} 帧", analysis_id)
 
-                # ---------- 关键修改：先计算 step_map，再调用 detect_and_track 一次完成绘制 ----------
+                # ---------- 关键修改：先计算 step_map，再调用 detect_and_track ----------
                 step_map = None
                 if step_inference is not None:
                     # 先做一次检测追踪，得到 tracked_objects，用于步骤推理
                     _, _, tracked_objects = self.detect_and_track(frame)
                     try:
-                        # 构造步骤推理所需的检测列表
                         step_dets = []
                         for obj in tracked_objects:
                             x1, y1, x2, y2 = map(float, obj['bbox'])
@@ -415,6 +415,9 @@ class TrackingSystem:
                         if frame_count == 1:
                             print(f"[step_inference] 同步推理异常: {_se}")
                         step_map = None
+
+                # 保存每帧步骤映射
+                per_frame_step_maps.append(step_map if step_map else {})
 
                 # 调用 detect_and_track，传入 step_map 一次完成绘制
                 annotated_frame, detections, tracked_objects = self.detect_and_track(frame, step_map=step_map)
@@ -505,6 +508,7 @@ class TrackingSystem:
                 'tracking_data': tracking_data,
                 'frame_data': frame_data,
                 'per_frame_detections': per_frame_detections,
+                'per_frame_step_maps': per_frame_step_maps,  # 新增
                 'total_tracks': total_tracks,
                 'tracked_ids': tracked_ids,
                 'top_tracks': top_tracks,

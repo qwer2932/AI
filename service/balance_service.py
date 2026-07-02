@@ -1,21 +1,40 @@
 def calculate_line_balance(analysis_results):
     """
     基于行为分析数据计算线平衡率
-    每个工位的价值时间 = 该工位主要工人的所有步骤时间之和（即 total_time）
+    每个工位的价值时间优先使用第一个完整循环的 total_time
     """
     workstations = []
     video_details = []
 
     for i, analysis in enumerate(analysis_results):
         behavior = analysis.get('behavior_analysis', {})
+        cycles = behavior.get('cycles', [])
         track_behaviors = behavior.get('track_behaviors', {})
         top_tracks = behavior.get('top_tracks', [])
-        if not top_tracks:
-            continue
-        main_track = top_tracks[0]
-        track_id = main_track['track_id']
-        beh = track_behaviors.get(str(track_id), {})
-        value_time = beh.get('total_time', 0)
+
+        if cycles:
+            # 取第一个完整循环（如果存在），否则取第一个循环
+            cycle = None
+            for c in cycles:
+                if c.get('complete', False):
+                    cycle = c
+                    break
+            if cycle is None and cycles:
+                cycle = cycles[0]
+            if cycle:
+                value_time = cycle['total_time']
+            else:
+                value_time = 0
+        else:
+            # 回退：取总时间最长的 track
+            if top_tracks:
+                main_track = top_tracks[0]
+                track_id = main_track['track_id']
+                beh = track_behaviors.get(str(track_id), {})
+                value_time = beh.get('total_time', 0)
+            else:
+                value_time = 0
+
         video_info = analysis.get('video_info', {})
         cycle_time = video_info.get('duration', 0)
         workstation_id = i + 1
