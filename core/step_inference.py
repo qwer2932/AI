@@ -14,7 +14,7 @@
 """
 
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, deque
 
 
 # 装配步骤定义（严格顺序）
@@ -36,15 +36,31 @@ class StepInference:
     根据每帧中各类别物体的位置关系和状态变化，判断当前装配步骤
     """
 
-    def __init__(self, proximity_threshold=0.30, warmup_frames=30):
+    def __init__(self, proximity_threshold=0.30, warmup_frames=30,
+                 handtighten_window=10, handtighten_ratio=0.7,
+                 electric_shrink_window=5, electric_shrink_ratio=0.70,
+                 idle_timeout=0):
         """
         Args:
             proximity_threshold: 物体中心点距离阈值（占图像宽/高的比例）
             warmup_frames: 预热帧数。前 N 帧解除独立步骤的顺序 gating，
                            允许从视频中任意位置开始判断
+            handtighten_window: HandTighten 判定滑动窗口大小（帧数）
+            handtighten_ratio: HandTighten 窗口内稳定帧占比阈值
+            electric_shrink_window: ElectricGun 面积缩小判定的滑动窗口大小（帧数）
+            electric_shrink_ratio: ElectricGun 面积缩小阈值（相对于 HandTighten 时的面积）
+            idle_timeout: 空闲超时帧数。连续多少帧无步骤判定后，重置当前步骤为 None。
+                          设为 0 表示禁用超时（保留原始行为）。
         """
         self.proximity_threshold = proximity_threshold
         self.warmup_frames = warmup_frames
+        # 滑动窗口参数
+        self.handtighten_window = handtighten_window
+        self.handtighten_ratio = handtighten_ratio
+        self.electric_shrink_window = electric_shrink_window
+        self.electric_shrink_ratio = electric_shrink_ratio
+        self.idle_timeout = idle_timeout
+
         self.frame_count = 0
         self.robot_home_position = None
         self.robot_at_body = False
@@ -67,12 +83,14 @@ class StepInference:
         self.X_DISP_THRESHOLD = 5  # 累积位移 > N 像素 → 向右移动
         # RobotReturn 阶段：一旦触发后，整段直到 RobotPick 都算 RobotReturn
         self._in_robot_return_phase = defaultdict(bool)
-        # HandTighten 确认帧数
+        # HandTighten 确认帧数（保留原字段，实际改用滑动窗口）
         self._handtighten_frames = defaultdict(int)
-        self.HANDTIGHTEN_CONFIRM = 8   # HandTighten 需要连续多少帧才确认（降低门槛）
+        self.HANDTIGHTEN_CONFIRM = 8   # 保留原常量（兼容，实际使用滑动窗口）
         # HandTighten 触发后冷却帧数（避免抖动被重复识别为 HandTighten）
         self._handtighten_cooldown = defaultdict(int)
         self.HANDTIGHTEN_COOLDOWN = 30
+        # HandTighten 滑动窗口（存储每帧是否满足"稳定"条件）
+        self._handtighten_stable_window = defaultdict(lambda: deque(maxlen=handtighten_window))
         # ElectricGun 触发帧数
         self._electricgun_triggered = defaultdict(bool)
         # ElectricGun 持续期到期帧（在此帧之前每帧都算 ElectricGun）
@@ -90,6 +108,11 @@ class StepInference:
         self._handtighten_gun_area = {}
         # RobotFix 阶段标记
         self._in_fix_phase = defaultdict(bool)
+        # ElectricGun 面积缩小的滑动窗口（存储每帧面积比值）
+        self._electric_shrink_window_data = defaultdict(lambda: deque(maxlen=electric_shrink_window))
+
+        # ---------- 新增：空闲超时计数器 ----------
+        self._idle_counter = defaultdict(int)
 
     def reset(self):
         """重置推理器状态（新的分析任务时调用）"""
@@ -110,11 +133,14 @@ class StepInference:
         self._in_robot_return_phase.clear()
         self._handtighten_frames.clear()
         self._handtighten_cooldown.clear()
+        self._handtighten_stable_window.clear()
         self._electricgun_triggered.clear()
         self._electricgun_cooldown.clear()
         self._electricgun_active.clear()
         self._electricgun_active_until.clear()
         self._has_seen_handtighten.clear()
+        self._electric_shrink_window_data.clear()
+        self._idle_counter.clear()
 
     def _get_center(self, bbox):
         """从边界框 [x1, y1, x2, y2] 获取中心点"""
@@ -346,6 +372,7 @@ class StepInference:
             #         触发的副作用是把 has_seen_handtighten 置位，为 ElectricGun 铺路
             #         冷却期内不重复触发（避免抖动被反复识别）
             #         ElectricGun 激活期间不重复触发 HandTighten
+            #         改用滑动窗口判定，提高鲁棒性（此改动属于“滑动窗口”功能）
             handtighten_triggered_this_frame = False
             if self._handtighten_cooldown[pid] > 0:
                 self._handtighten_cooldown[pid] -= 1
@@ -360,7 +387,7 @@ class StepInference:
                         break
 
                 if gun_near_person:
-                    # 检查电枪框位置是否基本稳定（2帧移动距离 < 20像素）
+                    # 检查电枪框位置是否基本稳定（2帧移动距离 < 8像素）
                     history = self._gun_bbox_history.get(pid, [])
                     if len(history) >= 3:
                         cx1, cy1 = history[-3][0], history[-3][1]
@@ -369,9 +396,15 @@ class StepInference:
                         d1 = np.sqrt((cx2-cx1)**2 + (cy2-cy1)**2)
                         d2 = np.sqrt((cx3-cx2)**2 + (cy3-cy2)**2)
                         if d1 < 8 and d2 < 8:
-                            self._gun_size_stable[pid] = True
-                            self._handtighten_frames[pid] += 1
-                            if self._handtighten_frames[pid] >= self.HANDTIGHTEN_CONFIRM:
+                            # 位置稳定 → 向稳定窗口追加 1
+                            self._handtighten_stable_window[pid].append(1)
+                        else:
+                            self._handtighten_stable_window[pid].append(0)
+                        # 计算窗口内的稳定比例
+                        win = self._handtighten_stable_window[pid]
+                        if len(win) >= self.handtighten_window:
+                            stable_ratio = sum(win) / self.handtighten_window
+                            if stable_ratio >= self.handtighten_ratio:
                                 if detected_step is None:
                                     detected_step = "HandTighten"
                                     handtighten_triggered_this_frame = True
@@ -384,19 +417,14 @@ class StepInference:
                                 self._handtighten_frames[pid] = 0
                                 self._has_seen_handtighten[pid] = True
                                 self._handtighten_cooldown[pid] = self.HANDTIGHTEN_COOLDOWN
-                        else:
-                            self._gun_size_stable[pid] = False
-                            self._handtighten_frames[pid] = 0
-                            # HandTighten 阶段：人开始向右移动 + 枪还在画面 → 切换 ElectricGun
-                            if person_moving_right:
-                                self._electricgun_active[pid] = self.frame_count
-                                self._electricgun_active_until[pid] = self.frame_count + self.ELECTRICGUN_DURATION
-                                detected_step = "ElectricGun"
-                                self._handtighten_frames[pid] = 0
-                                self._has_seen_handtighten[pid] = True
-                                self._handtighten_cooldown[pid] = self.HANDTIGHTEN_COOLDOWN
-                    elif len(history) >= 2:
-                        self._gun_size_stable[pid] = True
+                                # 清空窗口，避免连续触发
+                                self._handtighten_stable_window[pid].clear()
+                    else:
+                        # 数据不足，暂不判定
+                        pass
+                else:
+                    # 电枪不在手边，清空稳定窗口
+                    self._handtighten_stable_window[pid].clear()
 
             # Step 5: ElectricGun - 电枪打螺母
             #   RobotReturn 阶段内枪出现 → 仍算 RobotReturn，不切换到 ElectricGun
@@ -408,18 +436,20 @@ class StepInference:
                         break
 
                 if gun_near_person:
-                    # 枪在人附近 → 检查枪面积是否缩小到 HandTighten 时的 70% 及以下
-                    history = self._gun_bbox_history.get(pid, [])
+                    # 枪在人附近 → 检查枪面积是否缩小到 HandTighten 时的 70% 及以下（滑动窗口）
                     ref_area = self._handtighten_gun_area.get(pid, 0)
-                    current_area = history[-1][2] if history else 0
-                    area_shrunk = (ref_area > 0 and current_area > 0 and
-                                   current_area / ref_area <= 0.70)
-
-                    if area_shrunk:
-                        # 枪面积缩小到 70% 及以下 → ElectricGun
-                        self._electricgun_active[pid] = self.frame_count
-                        self._electricgun_active_until[pid] = self.frame_count + self.ELECTRICGUN_DURATION
-                        detected_step = "ElectricGun"
+                    if ref_area > 0:
+                        # 从历史中获取最近的面积值
+                        history = self._gun_bbox_history.get(pid, [])
+                        if len(history) >= self.electric_shrink_window:
+                            # 取最近 N 帧的面积平均值
+                            recent_areas = [h[2] for h in history[-self.electric_shrink_window:]]
+                            avg_area = np.mean(recent_areas)
+                            if avg_area / ref_area <= self.electric_shrink_ratio:
+                                # 面积缩小到阈值以下 → ElectricGun
+                                self._electricgun_active[pid] = self.frame_count
+                                self._electricgun_active_until[pid] = self.frame_count + self.ELECTRICGUN_DURATION
+                                detected_step = "ElectricGun"
                     elif self._electricgun_active.get(pid, 0) > 0 and self.frame_count <= self._electricgun_active_until.get(pid, 0):
                         # 仍在激活窗口内 → 延续 ElectricGun
                         detected_step = "ElectricGun"
@@ -447,14 +477,24 @@ class StepInference:
             if handtighten_triggered_this_frame and detected_step != "HandTighten":
                 self._has_seen_handtighten[pid] = True
 
-            # 更新步骤状态
+            # ---------- 更新步骤状态（增加空闲超时处理） ----------
             if detected_step:
+                # 检测到新步骤：重置空闲计数器（如果启用）
+                if self.idle_timeout > 0:
+                    self._idle_counter[pid] = 0
                 self._current_step[pid] = detected_step
                 self.step_frame_counts[pid][detected_step] += 1
                 self.last_step[pid] = detected_step
-            elif current_step:
-                # 继续保持当前步骤
-                self.step_frame_counts[pid][current_step] += 1
+            else:
+                # 没有检测到新步骤：处理空闲超时（仅当启用且当前步骤存在时）
+                if self.idle_timeout > 0 and self._current_step.get(pid) is not None:
+                    self._idle_counter[pid] += 1
+                    if self._idle_counter[pid] >= self.idle_timeout:
+                        # 超时，结束当前步骤（不再累加）
+                        self._current_step[pid] = None
+                elif self._current_step.get(pid) is not None:
+                    # 未启用超时或未超时，继续保持当前步骤累加
+                    self.step_frame_counts[pid][self._current_step[pid]] += 1
 
             result[pid] = self._current_step.get(pid)
 

@@ -22,6 +22,10 @@ except ImportError:
     print("警告: 未安装deep_sort_realtime，将使用简单追踪")
     DEEPSORT_AVAILABLE = False
 
+# 导入优化后的 StepInference
+from core.step_inference import StepInference
+
+
 class TrackingSystem:
     def __init__(self, model_path, conf_threshold=0.5, iou_threshold=0.45):
         """
@@ -193,7 +197,7 @@ class TrackingSystem:
                         'confidence': conf
                     })
             
-            # 绘制结果
+            # 绘制结果（如果提供了 step_map，则绘制步骤标签）
             annotated_frame = self._draw_tracks(frame, tracked_objects, step_map=step_map)
             
             return annotated_frame, detections, tracked_objects
@@ -274,7 +278,7 @@ class TrackingSystem:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
                 # 如果是 person 且本帧有步骤名，在标签下方再写一行步骤
-                if class_id == 0 and step_map and track_id in step_map:
+                if class_id == 0 and step_map and track_id in step_map and step_map[track_id] is not None:
                     step_name = step_map[track_id]
                     step_label = f"Step: {step_name}"
                     step_size = cv2.getTextSize(step_label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
@@ -306,35 +310,43 @@ class TrackingSystem:
         Returns:
             result: 分析结果字典
         """
-        # 如果调用方没传 step_inference，自动创建一个（保证视频有步骤标签）
+        # 如果调用方没传 step_inference，自动创建一个（使用调整后的参数，与原版行为接近）
         if step_inference is None:
             try:
-                from core.step_inference import StepInference
-                step_inference = StepInference(proximity_threshold=0.30, warmup_frames=30)
-                print(f"[tracking_system] step_inference 自动创建成功: {step_inference}")
+                step_inference = StepInference(
+                    proximity_threshold=0.30,
+                    warmup_frames=30,
+                    handtighten_window=10,         
+                    handtighten_ratio=0.7,         # 允许70%波动
+                    electric_shrink_window=5,      # 最近5帧平均
+                    electric_shrink_ratio=0.70,    # 面积缩小到70%以下
+                    idle_timeout=10                # 10帧超时
+                )
+                print(f"[tracking_system] step_inference 自动创建成功")
             except Exception as _e:
                 print(f"[tracking_system] step_inference 自动创建失败: {_e}")
                 step_inference = None
+
         try:
             # 重置追踪状态，确保每次分析都从ID 1开始
             self.track_history = defaultdict(list)
             self.track_classes = {}
             self.track_smoothing = {}
-            
+
             print(f"开始分析视频: {video_path}, 分析ID: {analysis_id}")
-            
+
             # 打开视频文件
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 raise Exception("无法打开视频文件")
-            
+
             # 获取视频信息
             fps = int(cap.get(cv2.CAP_PROP_FPS))
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration = total_frames / fps if fps > 0 else 0
-            
+
             video_info = {
                 'fps': fps,
                 'width': width,
@@ -343,16 +355,16 @@ class TrackingSystem:
                 'duration': duration,
                 'resolution': f"{width}x{height}"
             }
-            
+
             print(f"视频信息: {video_info}")
-            
+
             # 创建输出视频 - 使用 MP4 格式（H.264 编码），兼容所有现代浏览器
             output_path = f"results/{analysis_id}_tracked.mp4"
             output_width = width
             output_height = height
 
             # 尝试使用 H.264 编码（avc1），若不支持则回退到 mp4v
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')   # H.264
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
             out = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
 
             if not out.isOpened():
@@ -363,34 +375,34 @@ class TrackingSystem:
                     print("错误: 无法创建视频写入器")
                     cap.release()
                     return None
-            
+
             # 追踪数据存储
             tracking_data = {}
             frame_data = []
             per_frame_detections = []  # 每帧所有检测结果，供后置推理用
-            
+
             frame_count = 0
-            
+
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                
+
                 frame_count += 1
-                
+
                 # 更新进度
                 if progress_callback:
                     progress_callback(frame_count, total_frames, f"处理第 {frame_count} 帧", analysis_id)
-                
-                # 同步跑步骤推理（如果传了 step_inference），得到当前帧各 person 的步骤名
-                # 注意：必须先跑追踪拿到 track_id，再喂给 step_inference
+
+                # ---------- 关键修改：先计算 step_map，再调用 detect_and_track 一次完成绘制 ----------
                 step_map = None
                 if step_inference is not None:
+                    # 先做一次检测追踪，得到 tracked_objects，用于步骤推理
+                    _, _, tracked_objects = self.detect_and_track(frame)
                     try:
-                        annotated_frame_pre, detections_pre, tracked_objects_pre = self.detect_and_track(frame)
-                        # 用 tracked_objects 的 (track_id, bbox) 去给 detections 补 track_id
+                        # 构造步骤推理所需的检测列表
                         step_dets = []
-                        for obj in tracked_objects_pre:
+                        for obj in tracked_objects:
                             x1, y1, x2, y2 = map(float, obj['bbox'])
                             step_dets.append({
                                 'class_name': self.class_names.get(int(obj['class_id']), f"class_{int(obj['class_id'])}"),
@@ -399,20 +411,14 @@ class TrackingSystem:
                                 'confidence': float(obj['confidence']),
                             })
                         step_map = step_inference.infer_step(frame.shape, step_dets) or {}
-                        # 用 step_map 重新画图
-                        annotated_frame = self._draw_tracks(frame, tracked_objects_pre, step_map=step_map)
-                        # 把值传回外层（避免再跑一次 detect_and_track）
-                        detections = detections_pre
-                        tracked_objects = tracked_objects_pre
                     except Exception as _se:
                         if frame_count == 1:
                             print(f"[step_inference] 同步推理异常: {_se}")
                         step_map = None
 
-                if step_map is None:
-                    # 正常路径（没传 step_inference 或异常）
-                    annotated_frame, detections, tracked_objects = self.detect_and_track(frame, step_map=step_map)
-                
+                # 调用 detect_and_track，传入 step_map 一次完成绘制
+                annotated_frame, detections, tracked_objects = self.detect_and_track(frame, step_map=step_map)
+
                 # 存储每帧所有检测结果（供后置推理用）
                 frame_all_detections = []
                 for obj in tracked_objects:
@@ -427,7 +433,7 @@ class TrackingSystem:
                     'frame': frame_count,
                     'detections': frame_all_detections
                 })
-                
+
                 # 处理追踪结果（只记录person的追踪）
                 frame_tracks = []
                 for obj in tracked_objects:
@@ -435,8 +441,7 @@ class TrackingSystem:
                     bbox = obj['bbox']
                     class_id = obj['class_id']
                     confidence = obj['confidence']
-                    
-                    # 存储追踪数据
+
                     if track_id not in tracking_data:
                         tracking_data[track_id] = {
                             'frames': [],
@@ -446,14 +451,13 @@ class TrackingSystem:
                             'first_frame': frame_count,
                             'last_frame': frame_count
                         }
-                    
+
                     tracking_data[track_id]['frames'].append(frame_count)
-                    # 确保所有数据都是Python原生类型，避免JSON序列化错误
                     tracking_data[track_id]['bboxes'].append([float(x) for x in bbox])
                     tracking_data[track_id]['class_ids'].append(int(class_id))
                     tracking_data[track_id]['confidences'].append(float(confidence))
                     tracking_data[track_id]['last_frame'] = frame_count
-                    
+
                     frame_tracks.append({
                         'track_id': int(track_id),
                         'bbox': [float(x) for x in bbox],
@@ -461,60 +465,57 @@ class TrackingSystem:
                         'confidence': float(confidence),
                         'frame': frame_count
                     })
-                
+
                 frame_data.append({
                     'frame': frame_count,
                     'tracks': frame_tracks
                 })
-                
+
                 # 调整帧大小并写入输出视频
                 if annotated_frame.shape[1] != output_width or annotated_frame.shape[0] != output_height:
                     annotated_frame = cv2.resize(annotated_frame, (output_width, output_height))
                 out.write(annotated_frame)
-            
+
             # 释放资源
             cap.release()
             out.release()
-            
-            # 直接使用 AVI 文件
+
             print(f"视频生成完成: {output_path}")
-            
+
             # 验证生成的视频文件
             if not self.validate_video_file(output_path):
                 print(f"警告: 生成的视频文件可能有问题: {output_path}")
-                # 尝试重新生成一个简单的视频文件
                 self.create_fallback_video(output_path, width, height, fps)
-            
+
             # 计算追踪统计
             tracked_ids = [int(track_id) for track_id in tracking_data.keys()]
             total_tracks = len(tracked_ids)
-            
-            # 按追踪时长排序，获取前三个
+
             track_durations = []
             for track_id, data in tracking_data.items():
                 duration = data['last_frame'] - data['first_frame'] + 1
                 track_durations.append((int(track_id), int(duration)))
-            
+
             track_durations.sort(key=lambda x: x[1], reverse=True)
             top_tracks = track_durations[:3]
-            
+
             result = {
                 'analysis_id': analysis_id,
                 'video_info': video_info,
                 'tracking_data': tracking_data,
                 'frame_data': frame_data,
-                'per_frame_detections': per_frame_detections,  # 每帧所有检测，供后置推理
+                'per_frame_detections': per_frame_detections,
                 'total_tracks': total_tracks,
                 'tracked_ids': tracked_ids,
                 'top_tracks': top_tracks,
                 'video_path': output_path,
-                'result_video_path': f"results/{analysis_id}_tracked.mp4",  
+                'result_video_path': f"results/{analysis_id}_tracked.mp4",
                 'result': '分析完成'
             }
-            
+
             print(f"视频分析完成: {total_tracks} 个追踪目标")
             return result
-        
+
         except Exception as e:
             print(f"视频分析失败: {e}")
             raise
@@ -569,4 +570,3 @@ class TrackingSystem:
         except Exception as e:
             print(f"创建备用视频失败: {e}")
             return False
-    
