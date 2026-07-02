@@ -3796,7 +3796,7 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    alert('已删除全部历史记录');
+                    alert(result.message || '已删除全部历史记录并清空结果文件夹');
                     // 重置到第一页并刷新
                     currentPage = 1;
                     loadHistory();

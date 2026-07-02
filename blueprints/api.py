@@ -9,6 +9,7 @@ import json
 import uuid
 import time
 import threading
+import shutil
 from flask import Blueprint, request, jsonify, send_from_directory, send_file, current_app
 from werkzeug.utils import secure_filename
 
@@ -234,14 +235,23 @@ def delete_history(analysis_id):
 
 @bp.route('/history/all', methods=['DELETE'])
 def delete_all_history():
-    """删除全部历史记录"""
-    if not core.state.db_manager:
-        return jsonify({'success': False, 'error': '数据库未初始化'}), 200
+    """删除全部历史记录，并清空结果文件夹内容"""
     try:
-        if core.state.db_manager.delete_all_analysis():
-            return jsonify({'success': True, 'message': '已删除全部历史记录'})
-        else:
-            return jsonify({'success': False, 'error': '删除失败'}), 200
+        results_folder = current_app.config['RESULTS_FOLDER']
+        if os.path.exists(results_folder):
+            for entry in os.listdir(results_folder):
+                entry_path = os.path.join(results_folder, entry)
+                if os.path.isdir(entry_path) and not os.path.islink(entry_path):
+                    shutil.rmtree(entry_path)
+                else:
+                    os.remove(entry_path)
+
+        if core.state.db_manager:
+            db_deleted = core.state.db_manager.delete_all_analysis()
+            if not db_deleted:
+                return jsonify({'success': False, 'error': '删除失败'}), 200
+
+        return jsonify({'success': True, 'message': '已删除全部历史记录并清空结果文件夹'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
 
