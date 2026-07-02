@@ -455,6 +455,67 @@ class DatabaseManager:
             print(f"获取最近{days}天分页分析历史失败: {e}")
             return [], 0
     
+    def get_analysis_history_by_date_paginated(self, date: str, page: int = 1, per_page: int = 10) -> tuple[List[Dict], int]:
+        """
+        获取指定日期的分析历史记录（分页）
+        
+        Args:
+            date: 日期字符串，格式 YYYY-MM-DD
+            page: 页码（从1开始）
+            per_page: 每页条数
+            
+        Returns:
+            tuple: (历史记录列表, 总记录数)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # 获取总记录数
+            cursor.execute('''
+                SELECT COUNT(*) FROM analysis_history 
+                WHERE DATE(created_at) = %s
+            ''', (date,))
+            total = cursor.fetchone()[0]
+            
+            # 计算偏移量
+            offset = (page - 1) * per_page
+            
+            # 获取分页数据
+            cursor.execute('''
+                SELECT 
+                    analysis_id, filename, original_filename, video_path, result_video_path,
+                    video_info, total_tracks, tracked_ids, top_tracks, created_at
+                FROM analysis_history 
+                WHERE DATE(created_at) = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            ''', (date, per_page, offset))
+            
+            results = []
+            for row in cursor.fetchall():
+                created_at_str = row[9].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row[9], 'strftime') else str(row[9])
+                video_url = self._get_video_url(row[4])
+                results.append({
+                    'analysis_id': row[0],
+                    'filename': row[1],
+                    'original_filename': row[2],
+                    'video_path': row[3],
+                    'result_video_path': video_url,
+                    'video_info': json.loads(row[5]),
+                    'total_tracks': row[6],
+                    'tracked_ids': json.loads(row[7]),
+                    'top_tracks': json.loads(row[8]),
+                    'created_at': created_at_str
+                })
+            
+            conn.close()
+            return results, total
+            
+        except Exception as e:
+            print(f"获取指定日期分页分析历史失败: {e}")
+            return [], 0
+    
     def get_analysis_by_id(self, analysis_id: str) -> Optional[Dict]:
         """
         根据分析ID获取完整分析结果
@@ -560,6 +621,33 @@ class DatabaseManager:
             
         except Exception as e:
             print(f"删除分析记录失败: {e}")
+            return False
+    
+    def delete_all_analysis(self) -> bool:
+        """
+        删除所有分析记录
+        
+        Returns:
+            bool: 删除是否成功
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # 先删除所有追踪详情（外键约束）
+            cursor.execute('DELETE FROM track_details')
+            
+            # 再删除所有主记录
+            cursor.execute('DELETE FROM analysis_history')
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            print(f"删除所有分析记录失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def get_statistics(self) -> Dict:

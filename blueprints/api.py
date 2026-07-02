@@ -159,7 +159,7 @@ def get_video(filename):
 
 @bp.route('/history', methods=['GET'])
 def get_history():
-    """获取历史记录列表（分页）"""
+    """获取历史记录列表（分页），支持日期筛选"""
     if not core.state.db_manager:
         return jsonify({
             'success': False,
@@ -172,19 +172,25 @@ def get_history():
         }), 200
     try:
         days = request.args.get('days', type=int)
+        date = request.args.get('date', type=str)
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
-        if days:
+        
+        # 优先使用日期筛选
+        if date:
+            history, total = core.state.db_manager.get_analysis_history_by_date_paginated(date, page, per_page)
+        elif days:
             history, total = core.state.db_manager.get_analysis_history_by_days_paginated(days, page, per_page)
         else:
             history, total = core.state.db_manager.get_analysis_history_all_paginated(page, per_page)
+            
         return jsonify({
             'success': True,
             'data': history,
             'total': total,
             'page': page,
             'per_page': per_page,
-            'total_pages': (total + per_page - 1) // per_page
+            'total_pages': (total + per_page - 1) // per_page if total > 0 else 0
         })
     except Exception as e:
         return jsonify({
@@ -220,6 +226,20 @@ def delete_history(analysis_id):
     try:
         if core.state.db_manager.delete_analysis(analysis_id):
             return jsonify({'success': True, 'message': '删除成功'})
+        else:
+            return jsonify({'success': False, 'error': '删除失败'}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 200
+
+
+@bp.route('/history/all', methods=['DELETE'])
+def delete_all_history():
+    """删除全部历史记录"""
+    if not core.state.db_manager:
+        return jsonify({'success': False, 'error': '数据库未初始化'}), 200
+    try:
+        if core.state.db_manager.delete_all_analysis():
+            return jsonify({'success': True, 'message': '已删除全部历史记录'})
         else:
             return jsonify({'success': False, 'error': '删除失败'}), 200
     except Exception as e:

@@ -788,9 +788,40 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- 日期筛选日历弹窗 -->
+            <div id="date-filter-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+                <div class="relative top-20 mx-auto p-4 border w-96 shadow-lg rounded-md bg-white">
+                    <div class="mt-3">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold text-gray-900">选择日期</h3>
+                            <button id="close-date-modal" class="text-gray-400 hover:text-gray-600">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">选择日期</label>
+                            <input type="date" id="filter-date-input" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        </div>
+                        
+                        <div class="flex space-x-3">
+                            <button id="apply-date-filter" class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200">
+                                确定
+                            </button>
+                            <button id="cancel-date-filter" class="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors duration-200">
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- 历史记录列表 -->
             <div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+                <!-- 在历史记录列表部分，找到 <div class="flex justify-between items-center mb-6"> 内部 -->
                 <div class="flex justify-between items-center mb-6">
                     <div>
                         <h3 class="text-lg font-semibold text-gray-900 flex items-center">
@@ -799,9 +830,27 @@
                             </svg>
                             分析历史记录
                         </h3>
-                        <p class="text-sm text-gray-600 mt-1">每页显示10条记录，支持内部滚动</p>
+                        <p class="text-sm text-gray-600 mt-1" id="history-filter-info">显示全部记录</p>
                     </div>
-                    <div class="flex space-x-2">
+                    <div class="flex space-x-2 items-center">
+                        <button id="date-filter-btn" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            日期筛选
+                        </button>
+                        <button id="clear-date-filter-btn" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200 flex items-center hidden">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                            清除筛选
+                        </button>
+                        <button id="delete-all-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                            删除全部
+                        </button>
                         <button id="refresh-history-btn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center">
                             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -959,6 +1008,10 @@
         // 暂停/继续相关变量
         let isPaused = false;
         let isBatchPaused = false;
+        // 日期筛选相关变量
+        let selectedFilterDate = null;
+        let historyFilterInfo = null;        // 添加这一行
+        let clearDateFilterBtn = null;       // 添加这一行  
         
 
         // DOM元素
@@ -1265,7 +1318,80 @@
                     updateSelectionCount();
                 }
             });
+
+            // 删除全部历史记录按钮事件
+            const deleteAllBtn = document.getElementById('delete-all-btn');
+            if (deleteAllBtn) {
+                deleteAllBtn.addEventListener('click', deleteAllHistory);
+            }
             
+            // 日期筛选按钮事件
+            const dateFilterBtn = document.getElementById('date-filter-btn');
+            const dateFilterModal = document.getElementById('date-filter-modal');
+            const closeDateModal = document.getElementById('close-date-modal');
+            const cancelDateFilter = document.getElementById('cancel-date-filter');
+            const applyDateFilter = document.getElementById('apply-date-filter');
+            const filterDateInput = document.getElementById('filter-date-input');
+            // 改为全局变量，不要用 const
+            historyFilterInfo = document.getElementById('history-filter-info');
+            clearDateFilterBtn = document.getElementById('clear-date-filter-btn');
+
+            if (dateFilterBtn) {
+                dateFilterBtn.addEventListener('click', function() {
+                    // 如果有已选择的日期，在输入框中预填
+                    if (selectedFilterDate) {
+                        filterDateInput.value = selectedFilterDate;
+                    }
+                    dateFilterModal.classList.remove('hidden');
+                });
+            }
+
+            if (closeDateModal) {
+                closeDateModal.addEventListener('click', function() {
+                    dateFilterModal.classList.add('hidden');
+                });
+            }
+
+            if (cancelDateFilter) {
+                cancelDateFilter.addEventListener('click', function() {
+                    dateFilterModal.classList.add('hidden');
+                });
+            }
+
+            // 点击模态框外部关闭
+            if (dateFilterModal) {
+                dateFilterModal.addEventListener('click', function(e) {
+                    if (e.target === dateFilterModal) {
+                        dateFilterModal.classList.add('hidden');
+                    }
+                });
+            }
+
+            if (applyDateFilter) {
+                applyDateFilter.addEventListener('click', function() {
+                    const date = filterDateInput.value;
+                    if (!date) {
+                        alert('请选择日期');
+                        return;
+                    }
+                    selectedFilterDate = date;
+                    dateFilterModal.classList.add('hidden');
+                    // 刷新历史记录
+                    currentPage = 1;
+                    loadHistory();
+                });
+            }
+
+            if (clearDateFilterBtn) {
+                clearDateFilterBtn.addEventListener('click', function() {
+                    selectedFilterDate = null;
+                    filterDateInput.value = '';
+                    clearDateFilterBtn.classList.add('hidden');
+                    historyFilterInfo.textContent = '显示全部记录';
+                    currentPage = 1;
+                    loadHistory();
+                });
+            }
             console.log('事件监听器初始化完成');
         }
 
@@ -2713,7 +2839,7 @@
                                     </div>
                         <div class="text-right">
                             <div class="text-3xl font-bold text-blue-600">${topTrackData.total_time.toFixed(0)}</div>
-                            <div class="text-sm text-gray-600">总帧数</div>
+                            <div class="text-sm text-gray-600">总秒数</div>
                                     </div>
                                 </div>
                     
@@ -3609,14 +3735,32 @@
             try {
                 showHistoryLoading();
                 
-                // 获取分页历史记录
-                const response = await fetch(`/api/history?page=${currentPage}&per_page=${perPage}`);
+                // 构建URL参数
+                let url = `/api/history?page=${currentPage}&per_page=${perPage}`;
+                if (selectedFilterDate) {
+                    url += `&date=${selectedFilterDate}`;
+                }
+                
+                const response = await fetch(url);
                 const result = await response.json();
                 
                 if (result.success) {
                     historyData = result.data;
                     totalPages = result.total_pages;
                     totalRecords = result.total;
+                    
+                    // 更新筛选信息
+                    if (selectedFilterDate) {
+                        const dateObj = new Date(selectedFilterDate);
+                        const dateStr = dateObj.getFullYear() + '年' + 
+                                    String(dateObj.getMonth() + 1).padStart(2, '0') + '月' + 
+                                    String(dateObj.getDate()).padStart(2, '0') + '日';
+                        historyFilterInfo.textContent = '显示 ' + dateStr + ' 的记录';
+                        clearDateFilterBtn.classList.remove('hidden');
+                    } else {
+                        historyFilterInfo.textContent = '显示全部记录';
+                        clearDateFilterBtn.classList.add('hidden');
+                    }
                     
                     displayHistoryList();
                     updatePaginationInfo();
@@ -3629,9 +3773,55 @@
                 showHistoryError('加载历史记录失败: ' + error.message);
             }
         }
+        
+        // 在 loadHistory 函数之后添加
 
-            
+        async function deleteAllHistory() {
+            // 确认删除
+            if (!confirm('确定要删除全部历史记录吗？此操作不可撤销！')) {
+                return;
+            }
 
+            try {
+                // 显示加载状态
+                const deleteAllBtn = document.getElementById('delete-all-btn');
+                if (deleteAllBtn) {
+                    deleteAllBtn.disabled = true;
+                    deleteAllBtn.textContent = '删除中...';
+                }
+
+                const response = await fetch('/api/history/all', {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('已删除全部历史记录');
+                    // 重置到第一页并刷新
+                    currentPage = 1;
+                    loadHistory();
+                    loadStatistics(); // 刷新统计信息
+                } else {
+                    alert('删除失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                console.error('删除全部历史记录失败:', error);
+                alert('删除失败: ' + error.message);
+            } finally {
+                const deleteAllBtn = document.getElementById('delete-all-btn');
+                if (deleteAllBtn) {
+                    deleteAllBtn.disabled = false;
+                    deleteAllBtn.innerHTML = `
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                        删除全部
+                    `;
+                }
+            }
+        }
+        
         async function loadStatistics() {
             try {
                 const response = await fetch('/api/statistics');
