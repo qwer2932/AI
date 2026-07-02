@@ -707,7 +707,7 @@
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">追踪ID</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">总时间(帧)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">总时间(秒)</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">机械手取悬挂</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">扫描条码</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">机械手固定</th>
@@ -2085,7 +2085,6 @@
                     } else if (pollCount >= maxPolls) {
                         console.error('分析超时');
                         clearInterval(analysisInterval);
-                        alert('分析超时，请重试');
                         resetAnalysis();
                     } else {
                         // 更新进度
