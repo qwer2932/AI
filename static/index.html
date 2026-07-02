@@ -2302,7 +2302,8 @@
         // 更新比率分析环形图
         function updateRatioCharts(result) {
             // 从结果中获取比率数据，或者使用默认值
-            const analysisStats = result.analysis_stats || {};
+            const behaviorAnalysis = result.behavior_analysis || {};
+            const analysisStats = behaviorAnalysis.analysis_stats || {};
             const complianceRate = analysisStats.compliance_rate !== undefined ? analysisStats.compliance_rate : 89;
             const timeRatio = analysisStats.time_ratio !== undefined ? analysisStats.time_ratio : 89;
             const waitRatio = analysisStats.wait_ratio !== undefined ? analysisStats.wait_ratio : 89;
