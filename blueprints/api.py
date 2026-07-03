@@ -219,16 +219,65 @@ def get_history_detail(analysis_id):
         return jsonify({'success': False, 'error': str(e)}), 200
 
 
+def _delete_result_file(analysis_id: str) -> int:
+    """删除 results 目录下指定分析ID的相关文件（JSON + tracked 视频）。
+
+    Returns:
+        int: 删除成功的文件数量
+    """
+    deleted_count = 0
+    try:
+        results_folder = current_app.config['RESULTS_FOLDER']
+        candidates = [
+            os.path.join(results_folder, f"{analysis_id}.json"),
+            os.path.join(results_folder, f"{analysis_id}_tracked.mp4")
+        ]
+        for result_file in candidates:
+            if os.path.exists(result_file):
+                try:
+                    os.remove(result_file)
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"删除结果文件失败 {result_file}: {e}")
+    except Exception as e:
+        print(f"删除结果文件失败 {analysis_id}: {e}")
+    return deleted_count
+
+
 @bp.route('/history/<analysis_id>', methods=['DELETE'])
 def delete_history(analysis_id):
     """删除历史记录"""
-    if not core.state.db_manager:
-        return jsonify({'success': False, 'error': '数据库未初始化'}), 200
     try:
-        if core.state.db_manager.delete_analysis(analysis_id):
-            return jsonify({'success': True, 'message': '删除成功'})
-        else:
+        if core.state.db_manager and not core.state.db_manager.delete_analysis(analysis_id):
             return jsonify({'success': False, 'error': '删除失败'}), 200
+
+        deleted_files = _delete_result_file(analysis_id)
+        return jsonify({'success': True, 'message': f'删除成功，已移除 {deleted_files} 个结果文件'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 200
+
+
+@bp.route('/history/batch', methods=['DELETE'])
+def batch_delete_history():
+    """批量删除历史记录"""
+    try:
+        data = request.get_json(silent=True) or {}
+        analysis_ids = data.get('analysis_ids', [])
+        if not isinstance(analysis_ids, list) or len(analysis_ids) == 0:
+            return jsonify({'success': False, 'error': '请提供分析ID列表'}), 400
+
+        if core.state.db_manager:
+            for analysis_id in analysis_ids:
+                try:
+                    core.state.db_manager.delete_analysis(analysis_id)
+                except Exception:
+                    pass
+
+        deleted_count = 0
+        for analysis_id in analysis_ids:
+            deleted_count += _delete_result_file(analysis_id)
+
+        return jsonify({'success': True, 'message': f'已删除 {len(analysis_ids)} 条记录，其中 {deleted_count} 个结果文件已移除'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
 

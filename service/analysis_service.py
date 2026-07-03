@@ -339,8 +339,13 @@ def run_analysis(analysis_id, filepath, original_filename=None):
         else:
             print("✗ db_manager 为 None，无法保存到数据库")
 
-        # 保存 JSON 文件（备用）
-        result_file = os.path.join('results', f"{analysis_id}.json")
+        # 保存 JSON 文件（备用） — 使用配置中的 RESULTS_FOLDER，确保目录存在
+        results_dir = Config.RESULTS_FOLDER
+        try:
+            os.makedirs(results_dir, exist_ok=True)
+        except Exception:
+            pass
+        result_file = os.path.join(results_dir, f"{analysis_id}.json")
         with open(result_file, 'w', encoding='utf-8') as f:
             json.dump(final_result, f, ensure_ascii=False, indent=2)
 
