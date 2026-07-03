@@ -2757,7 +2757,7 @@
         function updateDoughnutChart(chartId, valueId, percentage, color) {
             const ctx = document.getElementById(chartId);
             const valueElement = document.getElementById(valueId);
-            
+
             if (!ctx || !valueElement) return;
 
             // 检查Chart是否已加载
@@ -2777,8 +2777,21 @@
                 chartInstance.destroy();
             }
 
-            // 更新中心数值
-            valueElement.textContent = percentage + '%';
+            // 判断是否超过 100%：变红
+            const isOver = percentage > 100;
+            const displayColor = isOver ? '#EF4444' : color; // 红色：Tailwind red-500
+            const displayPercent = isOver ? Math.min(percentage, 100) : percentage;
+            const overflowPercent = isOver ? percentage - 100 : 0;
+
+            // 更新中心数值 + 文字颜色
+            valueElement.textContent = percentage.toFixed(1) + '%';
+            if (isOver) {
+                valueElement.classList.add('text-red-500');
+                valueElement.classList.remove('text-gray-900');
+            } else {
+                valueElement.classList.remove('text-red-500');
+                valueElement.classList.add('text-gray-900');
+            }
 
             // 创建新图表
             const newChart = new Chart(ctx, {
@@ -2786,9 +2799,13 @@
                 data: {
                     labels: [],
                     datasets: [{
-                        data: [percentage, 100 - percentage],
-                        backgroundColor: [color, '#E5E7EB'],
-                        borderColor: ['#FFFFFF', '#FFFFFF'],
+                        data: isOver
+                            ? [100, overflowPercent, 0]  // 满圈 + 溢出
+                            : [displayPercent, 100 - displayPercent],
+                        backgroundColor: isOver
+                            ? [displayColor, displayColor, '#E5E7EB']  // 溢出也用红色
+                            : [color, '#E5E7EB'],
+                        borderColor: ['#FFFFFF', '#FFFFFF', '#FFFFFF'],
                         borderWidth: 3,
                         hoverOffset: 0
                     }]

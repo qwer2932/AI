@@ -282,25 +282,21 @@ def calculate_analysis_stats(per_frame_step_maps, cycles, fps, video_info):
     compliance_rate = (appeared_step_count / total_step_slots * 100) if total_step_slots > 0 else 0
 
     # 2. 操作时间与理论时间比
-    # 遍历所有循环，累加每个循环的实际时间和理论时间
-    total_actual_time = 0
-    total_theoretical_time = 0
+    # 总时间（视频时长） / (循环数 × 完整6步骤的理论总时间)
+    # 不论步骤是否出现，理论时间按"完整循环"算
+    total_time = video_info.get('duration', 0)  # 视频总时长（秒）
 
-    for cycle in cycles:
-        steps = cycle.get('steps', {})
-        for step_name in ALL_STEPS:
-            actual = steps.get(step_name, 0)
-            if actual > 0.1:  # 该步骤出现了
-                total_actual_time += actual
-                total_theoretical_time += THEORETICAL_TIMES.get(step_name, 0)
+    # 一个完整循环的理论总时间（6个步骤相加）
+    one_cycle_theoretical_time = sum(THEORETICAL_TIMES.values())  # 6+2+10+7+15+4 = 44 秒
 
-    time_ratio = (total_actual_time / total_theoretical_time * 100) if total_theoretical_time > 0 else 0
+    # 总理论时间 = 循环数 × 单个完整循环理论时间
+    total_theoretical_time = len(cycles) * one_cycle_theoretical_time
+
+    time_ratio = (total_time / total_theoretical_time * 100) if total_theoretical_time > 0 else 0
 
     # 3. 等待时间与总时间比
     # 等待时间 = 总时间 - 操作时间
     # 操作时间 = 所有循环中所有步骤的时间之和
-    total_time = video_info.get('duration', 0)  # 视频总时长（秒）
-    
     # 计算操作时间（所有步骤时间之和）
     operation_time = 0
     for cycle in cycles:
