@@ -1030,6 +1030,7 @@
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">追踪ID</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">总时间(秒)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作时间(秒)</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">机械手取悬挂</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">扫描条码</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">机械手固定</th>
@@ -3117,13 +3118,13 @@
             ratioDisplay.innerHTML = html;
         }
 
-        function updateResultsTable(result) {
+       function updateResultsTable(result) {
             const tbody = document.getElementById('results-table-body');
             const behaviorAnalysis = result.behavior_analysis;
             const cycles = behaviorAnalysis ? behaviorAnalysis.cycles : [];
 
             if (!cycles || cycles.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无循环数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="px-6 py-4 text-center text-gray-500">暂无循环数据</td></tr>';
                 return;
             }
 
@@ -3155,6 +3156,7 @@
                             </div>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${total.toFixed(1)}秒</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${(robotpick + scan + robotfix + handtighten + electricgun + robotreturn).toFixed(1)}秒</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${robotpick.toFixed(1)}秒</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${scan.toFixed(1)}秒</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${robotfix.toFixed(1)}秒</td>
@@ -3163,9 +3165,9 @@
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${robotreturn.toFixed(1)}秒</td>
                     </tr>
                 `;
-            });
+            });  // ← forEach 在这里结束
 
-            tbody.innerHTML = html;
+            tbody.innerHTML = html;  // ← 移到 forEach 外面
 
             // 如果有多个循环，显示提示
             if (cycles.length > 1) {
@@ -3182,7 +3184,7 @@
                 const infoDiv = parent.querySelector('.cycle-info');
                 if (infoDiv) infoDiv.remove();
             }
-        }
+        }  // ← 函数在这里结束
 
         function updateProgress(percent, message) {
             document.getElementById('progress-percent').textContent = percent + '%';
