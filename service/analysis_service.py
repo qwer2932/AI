@@ -235,6 +235,9 @@ def analyze_behavior(tracking_result, video_info, fps):
     per_frame_step_maps = tracking_result.get('per_frame_step_maps', [])
     cycles = extract_cycles_from_step_sequence(per_frame_step_maps, fps) if per_frame_step_maps else []
 
+    # 计算三个指标
+    analysis_stats = calculate_analysis_stats(per_frame_step_maps, cycles, fps, video_info)
+
     # 排序取前3（保留兼容）
     sorted_tracks = sorted(track_behaviors.items(), key=lambda x: x[1]['total_time'], reverse=True)[:3]
     return {
@@ -244,7 +247,75 @@ def analyze_behavior(tracking_result, video_info, fps):
             for tid, beh in sorted_tracks
         ],
         'cycles': cycles,
-        'cycle_data': cycles[0] if cycles else {}
+        'cycle_data': cycles[0] if cycles else {},
+        'analysis_stats': analysis_stats
+    }
+
+
+def calculate_analysis_stats(per_frame_step_maps, cycles, fps, video_info):
+    """
+    计算三个分析指标：
+    1. 标准化执行符合率：六个环节是否都出现
+    2. 操作时间与理论时间比
+    3. 等待时间与总时间比
+    """
+    # 理论时间（秒）
+    THEORETICAL_TIMES = {
+        "RobotPick": 6,
+        "Scan": 2,
+        "RobotFix": 10,
+        "HandTighten": 7,
+        "ElectricGun": 15,
+        "RobotReturn": 4
+    }
+    ALL_STEPS = ["RobotPick", "Scan", "RobotFix", "HandTighten", "ElectricGun", "RobotReturn"]
+
+    # 1. 标准化执行符合率：每个循环独立计算，统计出现的步骤实例数 / 总步骤槽位数
+    total_step_slots = len(cycles) * 6  # 每个循环6个步骤
+    appeared_step_count = 0
+    for cycle in cycles:
+        steps = cycle.get('steps', {})
+        for step_name, duration in steps.items():
+            if duration > 0.1:  # 时间大于 0.1 秒才算出现
+                appeared_step_count += 1
+
+    compliance_rate = (appeared_step_count / total_step_slots * 100) if total_step_slots > 0 else 0
+
+    # 2. 操作时间与理论时间比
+    # 遍历所有循环，累加每个循环的实际时间和理论时间
+    total_actual_time = 0
+    total_theoretical_time = 0
+
+    for cycle in cycles:
+        steps = cycle.get('steps', {})
+        for step_name in ALL_STEPS:
+            actual = steps.get(step_name, 0)
+            if actual > 0.1:  # 该步骤出现了
+                total_actual_time += actual
+                total_theoretical_time += THEORETICAL_TIMES.get(step_name, 0)
+
+    time_ratio = (total_actual_time / total_theoretical_time * 100) if total_theoretical_time > 0 else 0
+
+    # 3. 等待时间与总时间比
+    # 等待时间 = 总时间 - 操作时间
+    # 操作时间 = 所有循环中所有步骤的时间之和
+    total_time = video_info.get('duration', 0)  # 视频总时长（秒）
+    
+    # 计算操作时间（所有步骤时间之和）
+    operation_time = 0
+    for cycle in cycles:
+        steps = cycle.get('steps', {})
+        for step_name, duration in steps.items():
+            operation_time += duration
+    
+    # 等待时间 = 总时间 - 操作时间
+    wait_time = max(0, total_time - operation_time)
+    wait_ratio = (wait_time / total_time * 100) if total_time > 0 else 0
+
+    return {
+        'compliance_rate': round(compliance_rate, 1),
+        'time_ratio': round(time_ratio, 1),
+        'wait_ratio': round(wait_ratio, 1)
     }
 
 

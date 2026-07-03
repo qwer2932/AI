@@ -367,13 +367,43 @@
         }
         
     </style>
+
+    <style>
+        /* 全屏水印：平铺 logo，3D 阴影效果 */
+        .logo-watermark {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image: url('/static/图形标识_标准色_RGB.svg');
+            background-repeat: repeat;
+            background-size: 200px 200px;
+            background-position: 0 0;
+            opacity: 0.08;
+            filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3))
+                    drop-shadow(4px 4px 8px rgba(0, 0, 0, 0.2))
+                    drop-shadow(-1px -1px 2px rgba(255, 255, 255, 0.4));
+            transform: rotate(-15deg) scale(1.1);
+            transform-origin: center center;
+        }
+
+        /* 确保页面内容在水印之上 */
+        body > *:not(.logo-watermark) {
+            position: relative;
+            z-index: 1;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 h-screen overflow-hidden flex flex-col">
+    <!-- 全屏水印 -->
+    <div class="logo-watermark"></div>
     <!-- 头部标题 -->
     <header class="header-enhanced flex-shrink-0">
         <div class="w-full px-6 py-3">
             <div class="flex items-center">
                 <div class="flex items-center space-x-4 header-title">
+                    <!-- 系统 Logo -->
+                    <img src="/static/图形标识_标准色_RGB.svg" alt="Logo" class="h-12 w-12">
                     <!-- 系统标题 -->
                     <div>
                         <h1 class="text-xl font-bold text-gray-900">AI视觉系统</h1>
@@ -479,15 +509,17 @@
                 </div>
             
                 <!-- 单个文件上传区域 -->
-                <div id="single-upload-area" class="upload-area border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer bg-white">
-                    <div id="upload-content">
+                <div id="single-upload-area" class="upload-area border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer bg-white relative overflow-hidden">
+                    <!-- 巨大灰色 logo 水印 -->
+                    <img src="/static/图形标识_标准色_RGB.svg" alt="Logo" class="absolute inset-0 m-auto h-64 w-64 opacity-5 pointer-events-none" style="filter: grayscale(100%);">
+                    <div id="upload-content" class="relative z-10">
                         <svg class="mx-auto h-12 w-12 text-gray-400 upload-icon" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                             <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                         </svg>
                         <p class="mt-2 text-sm text-gray-600">点击或拖拽视频文件到此处</p>
                         <p class="text-xs text-gray-500">支持 MP4, AVI, MOV 格式</p>
                     </div>
-                    
+
                     <!-- 视频预览 -->
                     <div id="video-preview" class="hidden mt-4">
                         <video id="preview-video" controls class="w-full max-h-[300px] object-contain rounded-lg bg-gray-900"></video>
@@ -514,6 +546,39 @@
                     <div class="mt-4 flex justify-between items-center">
                         <span id="file-count" class="text-sm text-gray-600">已选择 0 个文件</span>
                         <button id="clear-batch-files" class="text-sm text-red-600 hover:text-red-800">清空列表</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系统功能介绍 -->
+            <div id="intro-section" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 mb-6 border border-blue-100">
+                <h3 class="text-md font-semibold text-gray-800 mb-3 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    系统功能介绍
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-700">
+                    <div class="flex items-start">
+                        <span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold mr-2">1</span>
+                        <div>
+                            <div class="font-medium text-gray-800">智能识别</div>
+                            <div class="text-gray-600">基于 YOLOv8 + DeepSORT，自动识别装配产线中的各类人员、设备与关键工件</div>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold mr-2">2</span>
+                        <div>
+                            <div class="font-medium text-gray-800">步骤分析</div>
+                            <div class="text-gray-600">根据工位动作特征，自动划分标准化装配步骤流程，支持自定义扩展</div>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <span class="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold mr-2">3</span>
+                        <div>
+                            <div class="font-medium text-gray-800">效率评估</div>
+                            <div class="text-gray-600">输出符合率、操作时间比、等待时间比等关键指标，助力生产优化</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -615,6 +680,10 @@
 
         <!-- 分析结果 -->
         <div id="results-section" class="hidden">
+            <!-- 巨大灰色 logo 水印 -->
+            <div class="flex justify-center py-8 mb-4 opacity-30">
+                <img src="/static/图形标识_标准色_RGB.svg" alt="Logo" class="h-64 w-64" style="filter: grayscale(100%);">
+            </div>
             <!-- 统计概览 -->
             <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
@@ -1867,6 +1936,12 @@
             } else {
                 console.error('buttonSection 元素未找到！');
             }
+
+            // 隐藏功能介绍卡片
+            const introSection = document.getElementById('intro-section');
+            if (introSection) {
+                introSection.classList.add('hidden');
+            }
             
             // 确保在单个上传模式下显示正确的按钮
             const uploadMode = document.querySelector('input[name="upload-mode"]:checked');
@@ -1908,14 +1983,20 @@
             previewVideo.src = '';
             uploadContent.classList.remove('hidden');
             videoPreview.classList.add('hidden');
-            
+
             // 隐藏按钮区域
             const buttonSection = document.getElementById('button-section');
             buttonSection.classList.add('hidden');
-            
+
+            // 显示功能介绍卡片
+            const introSection = document.getElementById('intro-section');
+            if (introSection) {
+                introSection.classList.remove('hidden');
+            }
+
             resultsSection.classList.add('hidden');
             progressSection.classList.add('hidden');
-            
+
             // 重置分析状态
             resetAnalysis();
             updateStatus('就绪');
@@ -2312,7 +2393,8 @@
         // 更新比率分析环形图
         function updateRatioCharts(result) {
             // 从结果中获取比率数据，或者使用默认值
-            const analysisStats = result.analysis_stats || {};
+            const behaviorAnalysis = result.behavior_analysis || {};
+            const analysisStats = behaviorAnalysis.analysis_stats || {};
             const complianceRate = analysisStats.compliance_rate !== undefined ? analysisStats.compliance_rate : 89;
             const timeRatio = analysisStats.time_ratio !== undefined ? analysisStats.time_ratio : 89;
             const waitRatio = analysisStats.wait_ratio !== undefined ? analysisStats.wait_ratio : 89;
@@ -3320,7 +3402,6 @@
             console.log('重置分析 - 按钮状态已恢复');
             
             // 隐藏模态框，但保留进度区域
-            behaviorModal.classList.add('hidden');
             topTrackSection.classList.add('hidden');
             
             // 隐藏暂停和终止按钮
@@ -3358,11 +3439,15 @@
         function showHistory() {
             historySection.classList.remove('hidden');
             resultsSection.classList.add('hidden');
-            
+
             // 隐藏上传区域
             const uploadSection = document.getElementById('upload-section');
             if (uploadSection) uploadSection.classList.add('hidden');
-            
+
+            // 隐藏功能介绍卡片
+            const introSection = document.getElementById('intro-section');
+            if (introSection) introSection.classList.add('hidden');
+
             // 隐藏按钮区域
             const buttonSection = document.getElementById('button-section');
             if (buttonSection) buttonSection.classList.add('hidden');
@@ -3381,11 +3466,19 @@
 
         function hideHistory() {
             historySection.classList.add('hidden');
-            
+
             // 显示上传区域
             const uploadSection = document.getElementById('upload-section');
             if (uploadSection) uploadSection.classList.remove('hidden');
-            
+
+            // 根据是否有文件决定是否显示功能介绍卡片
+            const introSection = document.getElementById('intro-section');
+            if (introSection) {
+                const hasFile = fileInput && fileInput.files && fileInput.files[0];
+                if (!hasFile) {
+                    introSection.classList.remove('hidden');
+                }
+            }
             // 更新导航按钮状态
             updateSidebarButtonState('standard-operation');
             
@@ -3783,14 +3876,25 @@
         function switchToStandardOperation() {
             // 更新按钮状态
             updateSidebarButtonState('standard-operation');
-            
+
             // 显示上传区域
             const uploadSection = document.getElementById('upload-section');
             if (uploadSection) uploadSection.classList.remove('hidden');
-            
+
             // 隐藏历史记录区域
             if (historySection) historySection.classList.add('hidden');
-            
+
+            // 根据是否有文件决定是否显示功能介绍卡片
+            const introSection = document.getElementById('intro-section');
+            if (introSection) {
+                const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
+                if (!hasFile) {
+                    introSection.classList.remove('hidden');
+                } else {
+                    introSection.classList.add('hidden');
+                }
+            }
+
             // 更新迷你导航按钮状态
             const standardOperationBtnMini = document.getElementById('standard-operation-btn-mini');
             const historyBtnMini = document.getElementById('history-btn-mini');
