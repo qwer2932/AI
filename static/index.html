@@ -1236,6 +1236,12 @@
                             </svg>
                             清除筛选
                         </button>
+                        <button id="select-page-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center">
+                            全选
+                        </button>
+                        <button id="batch-delete-btn" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200 flex items-center" disabled>
+                            批量删除
+                        </button>
                         <button id="delete-all-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 flex items-center">
                             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
@@ -1406,6 +1412,8 @@
         const historySection = document.getElementById('history-section');
         const refreshHistoryBtn = document.getElementById('refresh-history-btn');
         const historyList = document.getElementById('history-list');
+        const selectPageBtn = document.getElementById('select-page-btn');
+        const batchDeletePageBtn = document.getElementById('batch-delete-btn');
         
         // 分页相关DOM元素
         const perPageSelect = document.getElementById('per-page-select');
@@ -1591,6 +1599,8 @@
             
             if (historyBtn) historyBtn.addEventListener('click', toggleHistory);
             if (refreshHistoryBtn) refreshHistoryBtn.addEventListener('click', loadHistory);
+            if (selectPageBtn) selectPageBtn.addEventListener('click', selectPageRecords);
+            if (batchDeletePageBtn) batchDeletePageBtn.addEventListener('click', batchDeleteSelectedRecords);
             
             // 分页相关事件监听器
             if (perPageSelect) perPageSelect.addEventListener('change', handlePerPageChange);
@@ -3289,6 +3299,15 @@
             const count = checkedBoxes.length;
             selectionCount.textContent = `已选择 ${count} 条记录`;
             batchAnalyzeBtn.disabled = count === 0;
+            if (batchDeletePageBtn) {
+                batchDeletePageBtn.disabled = count === 0;
+            }
+        }
+
+        function resetHistorySelection() {
+            const checkboxes = document.querySelectorAll('#history-list .history-checkbox');
+            checkboxes.forEach(checkbox => checkbox.checked = false);
+            updateSelectionCount();
         }
 
         async function performBatchAnalysis() {
@@ -3856,6 +3875,8 @@
                     displayHistoryList();
                     updatePaginationInfo();
                     loadStatistics();
+                    resetHistorySelection();
+                    updateSelectionCount();
                 } else {
                     showHistoryError('加载历史记录失败');
                 }
@@ -4119,6 +4140,49 @@
                 }
             } catch (error) {
                 console.error('删除历史记录失败:', error);
+                alert('删除失败: ' + error.message);
+            }
+        }
+
+        function selectPageRecords() {
+            const checkboxes = document.querySelectorAll('#history-list .history-checkbox');
+            const allSelected = checkboxes.length > 0 && Array.from(checkboxes).every(checkbox => checkbox.checked);
+            checkboxes.forEach(checkbox => checkbox.checked = !allSelected);
+            updateSelectionCount();
+        }
+
+        async function batchDeleteSelectedRecords() {
+            const checkedBoxes = Array.from(document.querySelectorAll('.history-checkbox:checked'));
+            if (checkedBoxes.length === 0) {
+                alert('请先选择要删除的记录');
+                return;
+            }
+
+            if (!confirm('确定要删除选中的历史记录吗？此操作不可撤销！')) {
+                return;
+            }
+
+            const analysisIds = checkedBoxes.map(checkbox => checkbox.dataset.analysisId);
+
+            try {
+                const response = await fetch('/api/history/batch', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ analysis_ids: analysisIds })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert(result.message || '已删除选中的历史记录');
+                    currentPage = 1;
+                    loadHistory();
+                } else {
+                    alert('删除失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                console.error('批量删除历史记录失败:', error);
                 alert('删除失败: ' + error.message);
             }
         }
