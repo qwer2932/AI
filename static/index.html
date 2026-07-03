@@ -1030,6 +1030,7 @@
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">追踪ID</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">总时间(秒)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作时间(秒)</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">机械手取悬挂</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">扫描条码</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">机械手固定</th>
@@ -2757,7 +2758,7 @@
         function updateDoughnutChart(chartId, valueId, percentage, color) {
             const ctx = document.getElementById(chartId);
             const valueElement = document.getElementById(valueId);
-            
+
             if (!ctx || !valueElement) return;
 
             // 检查Chart是否已加载
@@ -2777,8 +2778,21 @@
                 chartInstance.destroy();
             }
 
-            // 更新中心数值
-            valueElement.textContent = percentage + '%';
+            // 判断是否超过 100%：变红
+            const isOver = percentage > 100;
+            const displayColor = isOver ? '#EF4444' : color; // 红色：Tailwind red-500
+            const displayPercent = isOver ? Math.min(percentage, 100) : percentage;
+            const overflowPercent = isOver ? percentage - 100 : 0;
+
+            // 更新中心数值 + 文字颜色
+            valueElement.textContent = percentage.toFixed(1) + '%';
+            if (isOver) {
+                valueElement.classList.add('text-red-500');
+                valueElement.classList.remove('text-gray-900');
+            } else {
+                valueElement.classList.remove('text-red-500');
+                valueElement.classList.add('text-gray-900');
+            }
 
             // 创建新图表
             const newChart = new Chart(ctx, {
@@ -2786,9 +2800,13 @@
                 data: {
                     labels: [],
                     datasets: [{
-                        data: [percentage, 100 - percentage],
-                        backgroundColor: [color, '#E5E7EB'],
-                        borderColor: ['#FFFFFF', '#FFFFFF'],
+                        data: isOver
+                            ? [100, overflowPercent, 0]  // 满圈 + 溢出
+                            : [displayPercent, 100 - displayPercent],
+                        backgroundColor: isOver
+                            ? [displayColor, displayColor, '#E5E7EB']  // 溢出也用红色
+                            : [color, '#E5E7EB'],
+                        borderColor: ['#FFFFFF', '#FFFFFF', '#FFFFFF'],
                         borderWidth: 3,
                         hoverOffset: 0
                     }]
@@ -3100,13 +3118,13 @@
             ratioDisplay.innerHTML = html;
         }
 
-        function updateResultsTable(result) {
+       function updateResultsTable(result) {
             const tbody = document.getElementById('results-table-body');
             const behaviorAnalysis = result.behavior_analysis;
             const cycles = behaviorAnalysis ? behaviorAnalysis.cycles : [];
 
             if (!cycles || cycles.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无循环数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="px-6 py-4 text-center text-gray-500">暂无循环数据</td></tr>';
                 return;
             }
 
@@ -3138,6 +3156,7 @@
                             </div>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${total.toFixed(1)}秒</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${(robotpick + scan + robotfix + handtighten + electricgun + robotreturn).toFixed(1)}秒</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${robotpick.toFixed(1)}秒</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${scan.toFixed(1)}秒</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${robotfix.toFixed(1)}秒</td>
@@ -3146,9 +3165,9 @@
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${robotreturn.toFixed(1)}秒</td>
                     </tr>
                 `;
-            });
+            });  // ← forEach 在这里结束
 
-            tbody.innerHTML = html;
+            tbody.innerHTML = html;  // ← 移到 forEach 外面
 
             // 如果有多个循环，显示提示
             if (cycles.length > 1) {
@@ -3165,7 +3184,7 @@
                 const infoDiv = parent.querySelector('.cycle-info');
                 if (infoDiv) infoDiv.remove();
             }
-        }
+        }  // ← 函数在这里结束
 
         function updateProgress(percent, message) {
             document.getElementById('progress-percent').textContent = percent + '%';
