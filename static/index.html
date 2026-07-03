@@ -360,12 +360,252 @@
         
         /* 迷你导航按钮激活状态 */
         #standard-operation-btn-mini.active,
+        #realtime-btn-mini.active,
         #history-btn-mini.active {
             border-color: #3b82f6 !important;
             background-color: #eff6ff !important;
             color: #1d4ed8 !important;
         }
-        
+
+    </style>
+
+    <style>
+        /* 实时分析页面：步骤链 */
+        .step-chain {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0;
+            padding: 32px 16px;
+        }
+
+        .step-node {
+            position: relative;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+            border: 3px solid #cbd5e1;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.25;
+            padding: 8px;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow:
+                0 4px 12px rgba(15, 23, 42, 0.08),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            z-index: 2;
+        }
+
+        .step-node::before {
+            content: "";
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899);
+            opacity: 0;
+            z-index: -1;
+            transition: opacity 0.5s ease;
+            filter: blur(8px);
+        }
+
+        .step-node .step-index {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #94a3b8, #64748b);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(100, 116, 139, 0.4);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 当前进行中：鲜亮蓝紫渐变 + 主动光晕 + 呼吸动画 */
+        .step-node.active {
+            border-color: transparent;
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #2563eb 100%);
+            color: #fff;
+            transform: scale(1.15);
+            box-shadow:
+                0 0 0 4px rgba(59, 130, 246, 0.25),
+                0 0 30px rgba(59, 130, 246, 0.6),
+                0 8px 24px rgba(59, 130, 246, 0.4);
+            animation: pulse-glow 1.4s ease-in-out infinite;
+        }
+
+        .step-node.active::before {
+            opacity: 0.8;
+        }
+
+        .step-node.active .step-index {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            color: #fff;
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+            transform: rotate(360deg);
+        }
+
+        /* 已完成：绿色对勾 */
+        .step-node.completed {
+            border-color: #10b981;
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            color: #047857;
+            box-shadow:
+                0 4px 12px rgba(16, 185, 129, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        }
+
+        .step-node.completed .step-index {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.5);
+        }
+
+        .step-node.completed::after {
+            content: "✓";
+            position: absolute;
+            bottom: -8px;
+            right: -8px;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            font-size: 15px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow:
+                0 0 0 3px #fff,
+                0 4px 8px rgba(16, 185, 129, 0.4);
+            animation: pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 连接线：渐变 + 流动动画 */
+        .step-link {
+            height: 5px;
+            flex: 1 1 60px;
+            min-width: 40px;
+            max-width: 120px;
+            background: linear-gradient(90deg, #cbd5e1 0%, #e2e8f0 50%, #cbd5e1 100%);
+            border-radius: 3px;
+            position: relative;
+            z-index: 1;
+            transition: all 0.5s ease;
+            overflow: hidden;
+        }
+
+        .step-link.completed {
+            background: linear-gradient(90deg, #10b981, #34d399, #10b981);
+            background-size: 200% 100%;
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+            animation: flow 2s linear infinite;
+        }
+
+        .step-link.completed::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -40%;
+            width: 40%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+            animation: shine 1.5s linear infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                box-shadow:
+                    0 0 0 4px rgba(59, 130, 246, 0.25),
+                    0 0 30px rgba(59, 130, 246, 0.6),
+                    0 8px 24px rgba(59, 130, 246, 0.4);
+            }
+            50% {
+                box-shadow:
+                    0 0 0 10px rgba(59, 130, 246, 0.1),
+                    0 0 50px rgba(59, 130, 246, 0.8),
+                    0 8px 30px rgba(59, 130, 246, 0.6);
+            }
+        }
+
+        @keyframes pop-in {
+            0% { transform: scale(0); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes flow {
+            0% { background-position: 0% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        @keyframes shine {
+            0% { left: -40%; }
+            100% { left: 100%; }
+        }
+
+        /* 实时视频框 */
+        .realtime-video-wrap {
+            position: relative;
+            background: #0f172a;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 16 / 9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .realtime-video-wrap video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .realtime-placeholder {
+            color: #94a3b8;
+            text-align: center;
+            padding: 32px;
+        }
+
+        .live-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+            margin-right: 6px;
+            animation: blink 1s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .cycle-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #fff;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+        }
     </style>
 
     <style>
@@ -437,7 +677,14 @@
                     </svg>
                     <span class="font-medium">标准化操作矫正</span>
                 </button>
-                
+
+                <button id="realtime-btn" class="w-full flex items-center px-4 py-3 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-all duration-200 sidebar-function-btn">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                    <span class="font-medium">实时分析</span>
+                </button>
+
                 <button id="history-btn" class="w-full flex items-center px-4 py-3 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-all duration-200 sidebar-function-btn">
                     <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
@@ -471,7 +718,14 @@
                     </svg>
                     <span class="text-xs">矫正</span>
                 </button>
-                
+
+                <button id="realtime-btn-mini" class="w-full flex flex-col items-center px-3 py-3 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-all duration-200" title="实时分析">
+                    <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                    <span class="text-xs">实时</span>
+                </button>
+
                 <button id="history-btn-mini" class="w-full flex flex-col items-center px-3 py-3 rounded-lg border-2 border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-all duration-200" title="历史记录">
                     <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
@@ -831,8 +1085,77 @@
             </div>
         </div>
 
+        <!-- 实时分析区域 -->
+        <div id="realtime-section" class="hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                    <h2 class="text-lg font-semibold text-gray-900 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                        实时视频流分析
+                    </h2>
+                    <div class="flex items-center space-x-3">
+                        <span id="realtime-cycle-badge" class="cycle-badge">第 1 循环</span>
+                        <span id="realtime-live-indicator" class="text-sm text-gray-600 hidden">
+                            <span class="live-dot"></span>实时分析中
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 顶部步骤链 -->
+                <div class="bg-gradient-to-r from-slate-50 to-blue-50 rounded-lg border border-blue-100 mb-6">
+                    <div id="realtime-step-chain" class="step-chain">
+                        <!-- 步骤节点由 JS 动态生成 -->
+                    </div>
+                </div>
+
+                <!-- 工位选择 + 视频区 -->
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                    <div class="lg:col-span-1">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">工位选择</label>
+                        <select id="realtime-station-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="station_a">A 工位 - 车身装配</option>
+                            <option value="station_b">B 工位 - 门盖装配</option>
+                            <option value="station_c">C 工位 - 总装检测</option>
+                        </select>
+
+                        <div class="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                            <p class="text-xs text-blue-800 font-medium mb-1">当前工位步骤</p>
+                            <p id="realtime-current-step" class="text-sm text-gray-700">未开始</p>
+                        </div>
+
+                        <div class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                            <p class="text-xs text-gray-600 font-medium mb-1">本循环已完成</p>
+                            <p id="realtime-completed-count" class="text-sm text-gray-700">0 / 0 步骤</p>
+                        </div>
+
+                        <button id="realtime-simulate-btn" class="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors">
+                            ▶ 启动模拟演示
+                        </button>
+                        <button id="realtime-stop-btn" class="mt-2 w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-medium transition-colors hidden">
+                            ■ 停止
+                        </button>
+                    </div>
+
+                    <div class="lg:col-span-3">
+                        <div class="realtime-video-wrap">
+                            <video id="realtime-video" class="hidden" controls muted></video>
+                            <div id="realtime-placeholder" class="realtime-placeholder">
+                                <svg class="w-16 h-16 mx-auto mb-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                </svg>
+                                <p class="text-sm">选择工位后启动模拟演示，即可看到步骤实时变化</p>
+                                <p class="text-xs text-slate-500 mt-2">（后端实时分析接入后，将自动显示对应工位摄像头画面）</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 历史记录区域 -->
-        <div id="history-section" class="hidden h-full">
+        <div id="history-section" class="hidden">
             <!-- 统计概览 -->
             <div class="bg-white rounded-lg shadow-sm p-6 mb-8 border border-gray-200">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
@@ -1065,8 +1388,7 @@
         const progressSection = document.getElementById('progress-section');
         const resultsSection = document.getElementById('results-section');
         const statusIndicator = document.getElementById('status-indicator');
-        const historyBtn = document.getElementById('history-btn');
-        
+
         // 批量上传相关DOM元素
         const singleUploadArea = document.getElementById('single-upload-area');
         const batchUploadArea = document.getElementById('batch-upload-area');
@@ -1095,6 +1417,8 @@
         
         // 侧边栏相关DOM元素
         const standardOperationBtn = document.getElementById('standard-operation-btn');
+        const realtimeBtn = document.getElementById('realtime-btn');
+        const historyBtn = document.getElementById('history-btn');
         
         // 新增的DOM元素
         const topTrackSection = document.getElementById('top-track-section');
@@ -1275,6 +1599,15 @@
             
             // 侧边栏功能按钮事件监听器
             if (standardOperationBtn) standardOperationBtn.addEventListener('click', switchToStandardOperation);
+            if (realtimeBtn) realtimeBtn.addEventListener('click', switchToRealtime);
+
+            // 实时分析页面事件
+            const realtimeSimulateBtn = document.getElementById('realtime-simulate-btn');
+            const realtimeStopBtn = document.getElementById('realtime-stop-btn');
+            const realtimeStationSelect = document.getElementById('realtime-station-select');
+            if (realtimeSimulateBtn) realtimeSimulateBtn.addEventListener('click', startRealtimeSimulate);
+            if (realtimeStopBtn) realtimeStopBtn.addEventListener('click', stopRealtimeSimulate);
+            if (realtimeStationSelect) realtimeStationSelect.addEventListener('change', onRealtimeStationChange);
             
             // 导航栏折叠/展开事件
             const collapseBtn = document.getElementById('collapse-btn');
@@ -1298,26 +1631,37 @@
             
             // 迷你导航按钮事件
             const standardOperationBtnMini = document.getElementById('standard-operation-btn-mini');
+            const realtimeBtnMini = document.getElementById('realtime-btn-mini');
             const historyBtnMini = document.getElementById('history-btn-mini');
-            
+
             if (standardOperationBtnMini) {
                 standardOperationBtnMini.addEventListener('click', function() {
                     switchToStandardOperation();
                     updateMiniNavActive('standard');
                 });
             }
-            
+
+            if (realtimeBtnMini) {
+                realtimeBtnMini.addEventListener('click', function() {
+                    switchToRealtime();
+                    updateMiniNavActive('realtime');
+                });
+            }
+
             if (historyBtnMini) {
                 historyBtnMini.addEventListener('click', function() {
                     toggleHistory();
                     updateMiniNavActive('history');
                 });
             }
-            
+
             // 更新迷你导航按钮激活状态
             function updateMiniNavActive(activeTab) {
                 if (standardOperationBtnMini) {
                     standardOperationBtnMini.classList.toggle('active', activeTab === 'standard');
+                }
+                if (realtimeBtnMini) {
+                    realtimeBtnMini.classList.toggle('active', activeTab === 'realtime');
                 }
                 if (historyBtnMini) {
                     historyBtnMini.classList.toggle('active', activeTab === 'history');
@@ -3432,6 +3776,14 @@
             // 隐藏按钮区域
             const buttonSection = document.getElementById('button-section');
             if (buttonSection) buttonSection.classList.add('hidden');
+
+            // 隐藏实时分析区
+            const realtimeSection = document.getElementById('realtime-section');
+            if (realtimeSection) realtimeSection.classList.add('hidden');
+
+            // 强制滚动到顶部
+            const mainArea = document.querySelector('.main-content-area');
+            if (mainArea) mainArea.scrollTop = 0;
             
             // 更新导航按钮状态
             updateSidebarButtonState('history');
@@ -3820,6 +4172,14 @@
             // 隐藏历史记录区域
             if (historySection) historySection.classList.add('hidden');
 
+            // 隐藏实时分析区
+            const realtimeSection = document.getElementById('realtime-section');
+            if (realtimeSection) realtimeSection.classList.add('hidden');
+
+            // 强制滚动到顶部
+            const mainArea = document.querySelector('.main-content-area');
+            if (mainArea) mainArea.scrollTop = 0;
+
             // 根据是否有文件决定是否显示功能介绍卡片
             const introSection = document.getElementById('intro-section');
             if (introSection) {
@@ -3866,14 +4226,179 @@
             
             console.log('切换到标准化操作矫正功能');
         }
+
+        // ============= 实时分析页面 =============
+
+        // 各工位的步骤配置（可扩展）
+        const REALTIME_STATIONS = {
+            station_a: ['取悬挂', '扫描条码', '机械手固定', '手预紧螺母', '电枪打螺母', '机械手回位'],
+            station_b: ['上料', '对位', '压装', '检测', '下料'],
+            station_c: ['外观检测', '尺寸检测', '气密检测', '总检', '合格下线']
+        };
+
+        let realtimeCurrentStation = 'station_a';
+        let realtimeCurrentStepIndex = -1;
+        let realtimeCycle = 1;
+        let realtimeTimer = null;
+
+        function switchToRealtime() {
+            // 更新侧边栏按钮状态
+            updateSidebarButtonState('realtime');
+
+            // 隐藏其它区
+            const uploadSection = document.getElementById('upload-section');
+            if (uploadSection) uploadSection.classList.add('hidden');
+            const introSection = document.getElementById('intro-section');
+            if (introSection) introSection.classList.add('hidden');
+            const buttonSection = document.getElementById('button-section');
+            if (buttonSection) buttonSection.classList.add('hidden');
+            if (historySection) historySection.classList.add('hidden');
+
+            // 显示实时分析区
+            const realtimeSection = document.getElementById('realtime-section');
+            if (realtimeSection) realtimeSection.classList.remove('hidden');
+
+            // 强制滚动到顶部
+            const mainArea = document.querySelector('.main-content-area');
+            if (mainArea) mainArea.scrollTop = 0;
+
+            // 初始化步骤链
+            renderRealtimeSteps();
+
+            // 更新迷你导航状态
+            const standardOperationBtnMini = document.getElementById('standard-operation-btn-mini');
+            const realtimeBtnMini = document.getElementById('realtime-btn-mini');
+            const historyBtnMini = document.getElementById('history-btn-mini');
+            if (standardOperationBtnMini) standardOperationBtnMini.classList.remove('active');
+            if (realtimeBtnMini) realtimeBtnMini.classList.add('active');
+            if (historyBtnMini) historyBtnMini.classList.remove('active');
+
+            console.log('切换到实时分析功能');
+        }
+
+        function renderRealtimeSteps() {
+            const chain = document.getElementById('realtime-step-chain');
+            if (!chain) return;
+            const steps = REALTIME_STATIONS[realtimeCurrentStation] || [];
+            chain.innerHTML = '';
+            steps.forEach((step, idx) => {
+                const node = document.createElement('div');
+                node.className = 'step-node';
+                node.id = `realtime-step-${idx}`;
+                node.innerHTML = `<span class="step-index">${idx + 1}</span><span>${step}</span>`;
+                chain.appendChild(node);
+                if (idx < steps.length - 1) {
+                    const link = document.createElement('div');
+                    link.className = 'step-link';
+                    link.id = `realtime-link-${idx}`;
+                    chain.appendChild(link);
+                }
+            });
+            updateRealtimeProgress();
+        }
+
+        function updateRealtimeProgress() {
+            const steps = REALTIME_STATIONS[realtimeCurrentStation] || [];
+            const total = steps.length;
+            const completed = realtimeCurrentStepIndex; // 已完成数 = 当前索引
+            const currentName = realtimeCurrentStepIndex >= 0 && realtimeCurrentStepIndex < total
+                ? steps[realtimeCurrentStepIndex]
+                : '未开始';
+
+            const curEl = document.getElementById('realtime-current-step');
+            if (curEl) curEl.textContent = currentName;
+            const countEl = document.getElementById('realtime-completed-count');
+            if (countEl) countEl.textContent = `${Math.max(0, completed)} / ${total} 步骤`;
+            const badge = document.getElementById('realtime-cycle-badge');
+            if (badge) badge.textContent = `第 ${realtimeCycle} 循环`;
+
+            // 更新节点样式
+            for (let i = 0; i < total; i++) {
+                const node = document.getElementById(`realtime-step-${i}`);
+                if (!node) continue;
+                node.classList.remove('active', 'completed');
+                if (i < realtimeCurrentStepIndex) node.classList.add('completed');
+                else if (i === realtimeCurrentStepIndex) node.classList.add('active');
+            }
+            // 更新连接线
+            for (let i = 0; i < total - 1; i++) {
+                const link = document.getElementById(`realtime-link-${i}`);
+                if (!link) continue;
+                link.classList.toggle('completed', i < realtimeCurrentStepIndex);
+            }
+        }
+
+        function startRealtimeSimulate() {
+            // 防止重复启动
+            if (realtimeTimer) return;
+            const simBtn = document.getElementById('realtime-simulate-btn');
+            const stopBtn = document.getElementById('realtime-stop-btn');
+            const liveInd = document.getElementById('realtime-live-indicator');
+            if (simBtn) simBtn.classList.add('hidden');
+            if (stopBtn) stopBtn.classList.remove('hidden');
+            if (liveInd) liveInd.classList.remove('hidden');
+
+            // 启动一个循环
+            realtimeCurrentStepIndex = -1;
+            updateRealtimeProgress();
+            advanceRealtimeStep();
+        }
+
+        function advanceRealtimeStep() {
+            const steps = REALTIME_STATIONS[realtimeCurrentStation] || [];
+            realtimeCurrentStepIndex++;
+            if (realtimeCurrentStepIndex >= steps.length) {
+                // 当前循环结束：恢复原样然后再来
+                realtimeCurrentStepIndex = -1;
+                realtimeCycle++;
+                updateRealtimeProgress();
+                realtimeTimer = setTimeout(() => {
+                    realtimeTimer = null;
+                    advanceRealtimeStep();
+                }, 1500);
+                return;
+            }
+            updateRealtimeProgress();
+            realtimeTimer = setTimeout(advanceRealtimeStep, 2200);
+        }
+
+        function stopRealtimeSimulate() {
+            if (realtimeTimer) {
+                clearTimeout(realtimeTimer);
+                realtimeTimer = null;
+            }
+            const simBtn = document.getElementById('realtime-simulate-btn');
+            const stopBtn = document.getElementById('realtime-stop-btn');
+            const liveInd = document.getElementById('realtime-live-indicator');
+            if (simBtn) simBtn.classList.remove('hidden');
+            if (stopBtn) stopBtn.classList.add('hidden');
+            if (liveInd) liveInd.classList.add('hidden');
+
+            // 重置状态
+            realtimeCurrentStepIndex = -1;
+            realtimeCycle = 1;
+            updateRealtimeProgress();
+        }
+
+        function onRealtimeStationChange() {
+            const sel = document.getElementById('realtime-station-select');
+            if (!sel) return;
+            realtimeCurrentStation = sel.value;
+            // 切换工位时停止当前模拟
+            if (realtimeTimer) stopRealtimeSimulate();
+            realtimeCurrentStepIndex = -1;
+            realtimeCycle = 1;
+            renderRealtimeSteps();
+        }
         
         function updateSidebarButtonState(activeFunction) {
             // 重置按钮状态
             const buttons = [
                 { btn: standardOperationBtn, id: 'standard-operation' },
+                { btn: realtimeBtn, id: 'realtime' },
                 { btn: historyBtn, id: 'history' }
             ];
-            
+
             buttons.forEach(({ btn, id }) => {
                 if (btn) {
                     if (id === activeFunction) {
