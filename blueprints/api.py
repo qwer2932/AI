@@ -10,7 +10,8 @@ import uuid
 import time
 import threading
 import shutil
-from flask import Blueprint, request, jsonify, send_from_directory, send_file, current_app
+import cv2
+from flask import Blueprint, request, jsonify, send_from_directory, send_file, current_app, Response
 from werkzeug.utils import secure_filename
 
 # 导入 core.state 模块（不要直接导入变量）
@@ -473,3 +474,93 @@ def get_result_video(filename):
     else:
         mimetype = 'video/mp4'
     return send_file(file_path, mimetype=mimetype, as_attachment=False, download_name=filename, conditional=False)
+
+
+# -------------------- RTSP视频流代理接口 --------------------
+
+def gen_frames(rtsp_url):
+    """生成RTSP视频流的帧数据"""
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        print(f"无法打开RTSP流: {rtsp_url}")
+        return
+    
+    try:
+        while True:
+            success, frame = cap.read()
+            if not success:
+                break
+            
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if not ret:
+                continue
+            
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+    finally:
+        cap.release()
+
+
+@bp.route('/rtsp/stream', methods=['GET'])
+def rtsp_stream():
+    """RTSP视频流代理 - 将RTSP流转换为MJPEG流供浏览器播放"""
+    try:
+        ip = request.args.get('ip')
+        port = request.args.get('port', '554')
+        username = request.args.get('username', 'admin')
+        password = request.args.get('password', '')
+        path = request.args.get('path', '/Streaming/Channels/101')
+        
+        if not ip:
+            return jsonify({'error': '请提供摄像头IP地址'}), 400
+        
+        rtsp_url = f"rtsp://{username}:{password}@{ip}:{port}{path}"
+        print(f"尝试连接RTSP流: rtsp://{username}:***@{ip}:{port}{path}")
+        
+        return Response(gen_frames(rtsp_url),
+                        mimetype='multipart/x-mixed-replace; boundary=frame')
+    except Exception as e:
+        print(f"RTSP流错误: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/rtsp/test', methods=['GET'])
+def rtsp_test():
+    """测试RTSP连接"""
+    try:
+        ip = request.args.get('ip')
+        port = request.args.get('port', '554')
+        username = request.args.get('username', 'admin')
+        password = request.args.get('password', '')
+        path = request.args.get('path', '/Streaming/Channels/101')
+        
+        if not ip:
+            return jsonify({'success': False, 'error': '请提供摄像头IP地址'}), 400
+        
+        rtsp_url = f"rtsp://{username}:{password}@{ip}:{port}{path}"
+        print(f"测试RTSP连接: rtsp://{username}:***@{ip}:{port}{path}")
+        
+        cap = cv2.VideoCapture(rtsp_url)
+        success = cap.isOpened()
+        
+        if success:
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            return jsonify({
+                'success': True,
+                'message': 'RTSP连接成功',
+                'video_info': {
+                    'fps': fps,
+                    'width': width,
+                    'height': height
+                }
+            })
+        else:
+            cap.release()
+            return jsonify({'success': False, 'error': '无法连接到RTSP流，请检查IP、端口和认证信息'}), 500
+    except Exception as e:
+        print(f"RTSP测试错误: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
