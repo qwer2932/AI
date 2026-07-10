@@ -53,11 +53,4 @@ if __name__ == '__main__':
     port = 5000
     print("=" * 60)
     print("AI视频追踪分析系统")
-    print("=" * 60)
-    print("启动Web服务器...")
-    print(f"  本机访问: http://localhost:{port}")
-    print(f"  局域网访问: http://{local_ip}:{port}")
-    print("=" * 60)
-    print("按 Ctrl+C 停止服务器")
-    print("=" * 60)
     app.run(host='0.0.0.0', port=port, debug=False)
