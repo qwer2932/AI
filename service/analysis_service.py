@@ -57,10 +57,8 @@ def extract_cycles_from_step_sequence(per_frame_step_maps, fps):
     允许从任意步骤开始循环，合并连续同步骤。
     1秒超时自动结束当前步骤。
     """
-    from collections import defaultdict
-
     step_order = ["RobotPick", "Scan", "RobotFix", "HandTighten", "ElectricGun", "RobotReturn"]
-    TIMEOUT_FRAMES = int(fps * 1.5)
+    TIMEOUT_FRAMES = int(fps * 2)  # 2秒超时，适应5帧处理间隔
 
     cycles = []
     total_frames = len(per_frame_step_maps)
@@ -199,40 +197,38 @@ def extract_cycles_from_step_sequence(per_frame_step_maps, fps):
 
 def analyze_behavior(tracking_result, video_info, fps):
     """
-    后置推理分析装配步骤，返回以秒为单位的统计
-    同时从 per_frame_step_maps 中提取循环数据
+    直接从 per_frame_step_maps 统计步骤信息，不再重新运行推理。
     """
-    from core.step_inference import StepInference
-    per_frame_detections = tracking_result.get('per_frame_detections', [])
-    inference = StepInference(proximity_threshold=0.30, warmup_frames=30)
+    per_frame_step_maps = tracking_result.get('per_frame_step_maps', [])
 
-    for frame_data in per_frame_detections:
-        inference.infer_step(
-            frame_shape=(video_info.get('height', 1080),
-                         video_info.get('width', 1920), 3),
-            detections=frame_data['detections']
-        )
+    # 统计每个 track_id 的步骤出现帧数
+    track_step_counts = defaultdict(lambda: defaultdict(int))
+    for frame_idx, step_map in enumerate(per_frame_step_maps):
+        if step_map:
+            for track_id, step in step_map.items():
+                if step is not None:
+                    track_step_counts[track_id][step] += 1
 
-    step_summary = inference.get_summary(fps=fps)
+    # 构建 track_behaviors
     track_behaviors = {}
-    for track_id, steps in step_summary.items():
-        total_frames = steps.pop('_total', 0)
+    for track_id, step_counts in track_step_counts.items():
+        total_frames = sum(step_counts.values())
         total_time = total_frames / fps if fps > 0 else 0
-        step_times = {k: v / fps if fps > 0 else 0 for k, v in steps.items()}
+        step_times = {step: count / fps for step, count in step_counts.items()}
         track_behaviors[str(track_id)] = {
             'total_time': float(total_time),
             **step_times
         }
 
     # 提取循环数据
-    per_frame_step_maps = tracking_result.get('per_frame_step_maps', [])
     cycles = extract_cycles_from_step_sequence(per_frame_step_maps, fps) if per_frame_step_maps else []
 
-    # 计算三个指标
+    # 计算指标
     analysis_stats = calculate_analysis_stats(per_frame_step_maps, cycles, fps, video_info)
 
-    # 排序取前3（保留兼容）
+    # 排序取前3
     sorted_tracks = sorted(track_behaviors.items(), key=lambda x: x[1]['total_time'], reverse=True)[:3]
+
     return {
         'track_behaviors': track_behaviors,
         'top_tracks': [
@@ -275,29 +271,18 @@ def calculate_analysis_stats(per_frame_step_maps, cycles, fps, video_info):
     compliance_rate = (appeared_step_count / total_step_slots * 100) if total_step_slots > 0 else 0
 
     # 2. 操作时间与理论时间比
-    # 总时间（视频时长） / (循环数 × 完整6步骤的理论总时间)
-    # 不论步骤是否出现，理论时间按"完整循环"算
     total_time = video_info.get('duration', 0)  # 视频总时长（秒）
-
-    # 一个完整循环的理论总时间（6个步骤相加）
-    one_cycle_theoretical_time = sum(THEORETICAL_TIMES.values())  # 6+2+10+7+15+4 = 44 秒
-
-    # 总理论时间 = 循环数 × 单个完整循环理论时间
+    one_cycle_theoretical_time = sum(THEORETICAL_TIMES.values())  # 44秒
     total_theoretical_time = len(cycles) * one_cycle_theoretical_time
-
     time_ratio = (total_time / total_theoretical_time * 100) if total_theoretical_time > 0 else 0
 
     # 3. 等待时间与总时间比
-    # 等待时间 = 总时间 - 操作时间
-    # 操作时间 = 所有循环中所有步骤的时间之和
-    # 计算操作时间（所有步骤时间之和）
     operation_time = 0
     for cycle in cycles:
         steps = cycle.get('steps', {})
         for step_name, duration in steps.items():
             operation_time += duration
     
-    # 等待时间 = 总时间 - 操作时间
     wait_time = max(0, total_time - operation_time)
     wait_ratio = (wait_time / total_time * 100) if total_time > 0 else 0
 
@@ -369,8 +354,10 @@ def run_analysis(analysis_id, filepath, original_filename=None):
                 print(f"分析 {analysis_id} 已恢复")
             update_progress(frame, total, msg, aid)
 
-        # 执行追踪分析
-        result = core.state.tracking_system.analyze_video(filepath, analysis_id, progress_callback)
+        # 执行追踪分析（每5帧处理一次）
+        result = core.state.tracking_system.analyze_video(
+            filepath, analysis_id, progress_callback, process_every_n=5
+        )
         fps = result['video_info']['fps']
 
         # 行为分析
@@ -399,7 +386,7 @@ def run_analysis(analysis_id, filepath, original_filename=None):
         else:
             print("✗ db_manager 为 None，无法保存到数据库")
 
-        # 保存 JSON 文件（备用） — 使用配置中的 RESULTS_FOLDER，确保目录存在
+        # 保存 JSON 文件（备用）
         results_dir = Config.RESULTS_FOLDER
         try:
             os.makedirs(results_dir, exist_ok=True)
