@@ -39,7 +39,6 @@ def init_tracking_system():
             )
             core.state.db_manager = db
             print("数据库系统初始化成功")
-            print(f"db_manager 对象地址: {id(core.state.db_manager)}")
         except Exception as db_e:
             print(f"⚠ 数据库初始化失败: {db_e}")
             import traceback
