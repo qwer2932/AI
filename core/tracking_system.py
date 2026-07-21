@@ -49,7 +49,10 @@ class TrackingSystem:
     def _load_models(self):
         """加载YOLO模型和DeepSORT追踪器"""
         try:
-            # 加载YOLO模型
+            import torch
+            from ultralytics.nn.tasks import DetectionModel
+            torch.serialization.add_safe_globals([DetectionModel])
+            
             self.yolo_model = YOLO(self.model_path)
             self.class_names = {
                 0: "person",              # 工人
