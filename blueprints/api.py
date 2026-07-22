@@ -221,27 +221,44 @@ def get_history_detail(analysis_id):
 
 
 def _delete_result_file(analysis_id: str) -> int:
-    """删除 results 目录下指定分析ID的相关文件（JSON + tracked 视频）。
+    """删除 results 和 uploads 目录下指定分析ID的相关文件。
 
     Returns:
         int: 删除成功的文件数量
     """
     deleted_count = 0
     try:
+        upload_filename = None
+        if core.state.db_manager:
+            try:
+                conn = core.state.db_manager.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT filename FROM analysis_history WHERE analysis_id = %s', (analysis_id,))
+                row = cursor.fetchone()
+                if row:
+                    upload_filename = row[0]
+                conn.close()
+            except Exception as e:
+                print(f"获取上传文件名失败 {analysis_id}: {e}")
+
+        upload_folder = current_app.config['UPLOAD_FOLDER']
         results_folder = current_app.config['RESULTS_FOLDER']
         candidates = [
             os.path.join(results_folder, f"{analysis_id}.json"),
             os.path.join(results_folder, f"{analysis_id}_tracked.mp4")
         ]
+        if upload_filename:
+            candidates.append(os.path.join(upload_folder, upload_filename))
+
         for result_file in candidates:
             if os.path.exists(result_file):
                 try:
                     os.remove(result_file)
                     deleted_count += 1
                 except Exception as e:
-                    print(f"删除结果文件失败 {result_file}: {e}")
+                    print(f"删除文件失败 {result_file}: {e}")
     except Exception as e:
-        print(f"删除结果文件失败 {analysis_id}: {e}")
+        print(f"删除文件失败 {analysis_id}: {e}")
     return deleted_count
 
 
@@ -249,11 +266,12 @@ def _delete_result_file(analysis_id: str) -> int:
 def delete_history(analysis_id):
     """删除历史记录"""
     try:
+        deleted_files = _delete_result_file(analysis_id)
+
         if core.state.db_manager and not core.state.db_manager.delete_analysis(analysis_id):
             return jsonify({'success': False, 'error': '删除失败'}), 200
 
-        deleted_files = _delete_result_file(analysis_id)
-        return jsonify({'success': True, 'message': f'删除成功，已移除 {deleted_files} 个结果文件'})
+        return jsonify({'success': True, 'message': f'删除成功，已移除 {deleted_files} 个文件'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
 
@@ -267,6 +285,10 @@ def batch_delete_history():
         if not isinstance(analysis_ids, list) or len(analysis_ids) == 0:
             return jsonify({'success': False, 'error': '请提供分析ID列表'}), 400
 
+        deleted_count = 0
+        for analysis_id in analysis_ids:
+            deleted_count += _delete_result_file(analysis_id)
+
         if core.state.db_manager:
             for analysis_id in analysis_ids:
                 try:
@@ -274,18 +296,14 @@ def batch_delete_history():
                 except Exception:
                     pass
 
-        deleted_count = 0
-        for analysis_id in analysis_ids:
-            deleted_count += _delete_result_file(analysis_id)
-
-        return jsonify({'success': True, 'message': f'已删除 {len(analysis_ids)} 条记录，其中 {deleted_count} 个结果文件已移除'})
+        return jsonify({'success': True, 'message': f'已删除 {len(analysis_ids)} 条记录，其中 {deleted_count} 个文件已移除'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
 
 
 @bp.route('/history/all', methods=['DELETE'])
 def delete_all_history():
-    """删除全部历史记录，并清空结果文件夹内容"""
+    """删除全部历史记录，并清空结果文件夹和上传文件夹内容"""
     try:
         results_folder = current_app.config['RESULTS_FOLDER']
         if os.path.exists(results_folder):
@@ -296,12 +314,21 @@ def delete_all_history():
                 else:
                     os.remove(entry_path)
 
+        upload_folder = current_app.config['UPLOAD_FOLDER']
+        if os.path.exists(upload_folder):
+            for entry in os.listdir(upload_folder):
+                entry_path = os.path.join(upload_folder, entry)
+                if os.path.isdir(entry_path) and not os.path.islink(entry_path):
+                    shutil.rmtree(entry_path)
+                else:
+                    os.remove(entry_path)
+
         if core.state.db_manager:
             db_deleted = core.state.db_manager.delete_all_analysis()
             if not db_deleted:
                 return jsonify({'success': False, 'error': '删除失败'}), 200
 
-        return jsonify({'success': True, 'message': '已删除全部历史记录并清空结果文件夹'})
+        return jsonify({'success': True, 'message': '已删除全部历史记录并清空结果文件夹和上传文件夹'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
 
