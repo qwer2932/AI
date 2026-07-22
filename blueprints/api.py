@@ -328,12 +328,7 @@ def batch_delete_history():
 
 @bp.route('/history/all', methods=['DELETE'])
 def delete_all_history():
-<<<<<<< HEAD
     """删除全部历史记录，并清空结果文件夹和上传文件夹内容"""
-=======
-    """删除全部历史记录，并清空结果文件夹内容"""
-    _init_db_if_needed()
->>>>>>> d1f83ce635cc39678df0eac24784ba85e9e21cd8
     try:
         results_folder = current_app.config['RESULTS_FOLDER']
         if os.path.exists(results_folder):
