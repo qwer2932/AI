@@ -8,7 +8,7 @@ import pymysql
 import json
 import os
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 class DatabaseManager:
     def __init__(self, host: str = "localhost", port: int = 3306, user: str = "root", 
@@ -338,7 +338,7 @@ class DatabaseManager:
             print(f"获取最近{days}天分析历史失败: {e}")
             return []
     
-    def get_analysis_history_all_paginated(self, page: int = 1, per_page: int = 10) -> tuple[List[Dict], int]:
+    def get_analysis_history_all_paginated(self, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
         """
         获取所有分析历史记录（分页）
         
@@ -394,7 +394,7 @@ class DatabaseManager:
             print(f"获取分页分析历史失败: {e}")
             return [], 0
     
-    def get_analysis_history_by_days_paginated(self, days: int, page: int = 1, per_page: int = 10) -> tuple[List[Dict], int]:
+    def get_analysis_history_by_days_paginated(self, days: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
         """
         获取最近N天的分析历史记录（分页）
         
@@ -455,7 +455,7 @@ class DatabaseManager:
             print(f"获取最近{days}天分页分析历史失败: {e}")
             return [], 0
     
-    def get_analysis_history_by_date_paginated(self, date: str, page: int = 1, per_page: int = 10) -> tuple[List[Dict], int]:
+    def get_analysis_history_by_date_paginated(self, date: str, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
         """
         获取指定日期的分析历史记录（分页）
         

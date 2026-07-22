@@ -23,8 +23,8 @@ def init_tracking_system():
     初始化追踪系统和数据库连接
     """
     try:
-        # 初始化追踪系统
-        core.state.tracking_system = TrackingSystem(Config.MODEL_PATH)
+        # 初始化追踪系统（进一步降低置信度阈值以检测更多物体）
+        core.state.tracking_system = TrackingSystem(Config.MODEL_PATH, conf_threshold=0.2, iou_threshold=0.45)
         print("追踪系统初始化成功")
 
         # 初始化数据库连接
