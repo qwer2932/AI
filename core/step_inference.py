@@ -95,9 +95,9 @@ class StepInference:
         self._handtighten_stable_window = defaultdict(lambda: deque(maxlen=handtighten_window))
         # ElectricGun 触发帧数
         self._electricgun_triggered = defaultdict(bool)
-        # ElectricGun 持续期到期帧（在此帧之前每帧都算 ElectricGun）
+        # ElectricGun 持续期到期帧（此属性已废弃，改为人物移动判断，但保留以防兼容）
         self._electricgun_active_until = defaultdict(int)
-        self.ELECTRICGUN_DURATION = 45  # 持续约 1.8 秒（25fps），窗口加长
+        self.ELECTRICGUN_DURATION = 45  # 不再使用，保留常量
         # ElectricGun 触发后冷却帧数
         self._electricgun_cooldown = defaultdict(int)
         self.ELECTRICGUN_COOLDOWN = 20
@@ -206,6 +206,9 @@ class StepInference:
         cars      = (self._find_by_class(detections, '310C') +
                      self._find_by_class(detections, 'E262C'))
 
+        # 判断悬挂是否存在（本帧）
+        susp_present = len(susp) > 0
+
         # 更新机械臂初始位置（仅取第一帧）
         if self.frame_count == 1 and arms:
             self.robot_home_position = self._get_center(arms[0]['bbox'])
@@ -266,22 +269,37 @@ class StepInference:
                     arm_cumulative_dx = 0
                     arm_moving_right = False
 
+            # ========== 强制结束条件（优先级最高） ==========
+            # 1. RobotFix 结束：悬挂消失
+            if current_step == "RobotFix" and not susp_present:
+                self._current_step[pid] = None
+                current_step = None
+
+            # 2. RobotPick 结束：悬挂消失
+            if current_step == "RobotPick" and not susp_present:
+                self._current_step[pid] = None
+                current_step = None
+
             # ========== RobotReturn 阶段处理 ==========
-            # 1. 如果已经处于 RobotReturn 阶段，检查是否应该退出（仅看人是否向右移动）
+            # 进入条件：机械手向右移动且存在，且 上一个动作为 ElectricGun
+            # 退出条件：悬挂出现 且 机械手停止向右移动
             if self._in_robot_return_phase.get(pid, False):
-                if not person_moving_right:
+                # 检查是否应该退出
+                if susp_present and not arm_moving_right:
                     self._in_robot_return_phase[pid] = False
+                    self._current_step[pid] = None
+                    # 不 continue，让后续代码尝试触发 RobotPick
                 else:
-                    # 仍满足条件，本帧继续算作 RobotReturn
+                    # 仍在回位阶段
                     self.step_frame_counts[pid]["RobotReturn"] += 1
                     result[pid] = "RobotReturn"
                     continue
 
-            # 2. 如果不在 RobotReturn 阶段，检查是否应该进入
+            # 进入 RobotReturn 条件（优化：上个动作为 ElectricGun）
             if not self._in_robot_return_phase.get(pid, False):
-                if arm_moving_right and person_moving_right and arm_present:
-                    eg_active = self._electricgun_active.get(pid, 0) > 0
-                    if current_step in (None, "HandTighten") and not eg_active:
+                if arm_moving_right and arm_present:
+                    # 检查上一帧步骤是否为 ElectricGun
+                    if self.last_step.get(pid) == "ElectricGun":
                         self._in_robot_return_phase[pid] = True
                         self._current_step[pid] = None
                         self.last_step[pid] = "RobotReturn"
@@ -296,10 +314,27 @@ class StepInference:
                         result[pid] = "RobotReturn"
                         continue
 
-            # --- HandTighten → ElectricGun 切换 ---
+            # ========== ElectricGun 激活期间处理 ==========
+            eg_active = self._electricgun_active.get(pid, 0) > 0
+            if eg_active:
+                # 检查结束条件：人物向右移动
+                if person_moving_right:
+                    # 结束 ElectricGun
+                    self._electricgun_active[pid] = 0
+                    self._current_step[pid] = None
+                    # 不 continue，让后续代码检测新步骤（可能触发 RobotReturn 或 RobotPick）
+                else:
+                    # 仍在工作中，强制 ElectricGun
+                    self.step_frame_counts[pid]["ElectricGun"] += 1
+                    result[pid] = "ElectricGun"
+                    self._current_step[pid] = "ElectricGun"
+                    continue
+
+            # ========== HandTighten → ElectricGun 切换 ==========
+            # 如果当前是 HandTighten，人开始向右移动 → 切换为 ElectricGun（人开始工作）
             if current_step == "HandTighten" and person_moving_right and len(guns) > 0:
                 self._electricgun_active[pid] = self.frame_count
-                self._electricgun_active_until[pid] = self.frame_count + self.ELECTRICGUN_DURATION
+                self._electricgun_active_until[pid] = self.frame_count + self.ELECTRICGUN_DURATION  # 保留，但不会使用
                 result[pid] = "ElectricGun"
                 self._current_step[pid] = "ElectricGun"
                 continue
@@ -314,22 +349,20 @@ class StepInference:
                         if len(self._gun_bbox_history[pid]) > 30:
                             self._gun_bbox_history[pid] = self._gun_bbox_history[pid][-30:]
 
-            # 检查悬挂是否在右侧
-            if susp:
+            # 检查悬挂是否在右侧（用于 RobotPick 判断）
+            if susp_present:
                 susp_pos = self._get_center(susp[0]['bbox'])
                 self._suspension_on_right[pid] = self._is_on_right_side(susp_pos, frame_shape)
+                susp_x_ratio = susp_pos[0] / w
+            else:
+                self._suspension_on_right[pid] = False
+                susp_x_ratio = None
 
             # 步骤判断
             in_warmup = self.frame_count <= self.warmup_frames
             detected_step = None
 
             # 区域判定：悬挂在右侧 1/5 算 RobotPick，否则 RobotFix
-            if susp:
-                susp_pos = self._get_center(susp[0]['bbox'])
-                susp_x_ratio = susp_pos[0] / w
-            else:
-                susp_x_ratio = None
-
             was_in_pick_zone = self._suspension_on_right.get(pid, False)
             if susp_x_ratio is not None and susp_x_ratio > 0.80:
                 susp_in_pick_zone = True
@@ -337,45 +370,43 @@ class StepInference:
                 susp_in_pick_zone = True
             else:
                 susp_in_pick_zone = False
-
             self._suspension_on_right[pid] = susp_in_pick_zone
 
-            # Step 1: RobotPick
-            if arms and susp and persons and susp_in_pick_zone and detected_step is None:
+            # Step 1: RobotPick - 机械手和悬挂靠近 + 悬挂在画面右侧 1/5 区域
+            if arms and susp_present and susp_in_pick_zone and detected_step is None:
                 arm_pos = self._get_center(arms[0]['bbox'])
                 susp_pos = self._get_center(susp[0]['bbox'])
                 if self._is_near(arm_pos, susp_pos, frame_shape):
                     detected_step = "RobotPick"
                     self._in_robot_return_phase[pid] = False   # 强制退出 RobotReturn
 
-            # Step 3: RobotFix
-            if susp and not susp_in_pick_zone and detected_step is None:
-                detected_step = "RobotFix"
+            # Step 3: RobotFix - 悬挂在画面其他区域（机械手已持有悬挂向车移动）
+            if susp_present and not susp_in_pick_zone and detected_step is None:
+                # 只有在非 ElectricGun 和非 RobotReturn 阶段才触发
+                if not eg_active and not self._in_robot_return_phase.get(pid, False):
+                    detected_step = "RobotFix"
 
-            # Step 2: Scan
+            # Step 2: Scan - 扫码枪出现在人手边（独立步骤）
             if detected_step is None and scanners and persons:
                 scanner_pos = self._get_center(scanners[0]['bbox'])
                 if self._is_near(person_pos, scanner_pos, frame_shape):
                     detected_step = "Scan"
 
-            # ========== Step 4: HandTighten（优化：人必须在车内） ==========
+            # Step 4: HandTighten - 电枪在人/车附近，框大小基本不变（独立步骤）
             handtighten_triggered_this_frame = False
             if self._handtighten_cooldown[pid] > 0:
                 self._handtighten_cooldown[pid] -= 1
-            eg_active = self._electricgun_active.get(pid, 0) > 0
-
             if guns and cars and self._handtighten_cooldown[pid] == 0 and not eg_active:
-                # 新增条件：人的中心点必须在任意车辆的边界框内
+                # 人必须在车内
                 person_in_car = False
                 for car in cars:
                     if self._is_point_in_bbox(person_pos, car['bbox']):
                         person_in_car = True
                         break
                 if not person_in_car:
-                    # 人不在车内，不判定 HandTighten，清空稳定窗口
                     self._handtighten_stable_window[pid].clear()
                 else:
-                    # 继续检查电枪是否在人手边且在车附近
+                    # 检查电枪是否在人手边且在车附近
                     gun_near_person = False
                     for gun in guns:
                         if (self._is_near(person_pos, self._get_center(gun['bbox']), frame_shape) and
@@ -396,7 +427,6 @@ class StepInference:
                                 self._handtighten_stable_window[pid].append(1)
                             else:
                                 self._handtighten_stable_window[pid].append(0)
-                            # 计算窗口内的稳定比例
                             win = self._handtighten_stable_window[pid]
                             if len(win) >= self.handtighten_window:
                                 stable_ratio = sum(win) / self.handtighten_window
@@ -415,11 +445,10 @@ class StepInference:
                                     self._handtighten_cooldown[pid] = self.HANDTIGHTEN_COOLDOWN
                                     self._handtighten_stable_window[pid].clear()
                     else:
-                        # 电枪不在手边，清空稳定窗口
                         self._handtighten_stable_window[pid].clear()
 
-            # Step 5: ElectricGun
-            if detected_step is None and guns and persons and not self._in_robot_return_phase.get(pid, False):
+            # Step 5: ElectricGun - 若尚未激活，且满足缩小条件，触发激活
+            if not eg_active and detected_step is None and guns and persons and not self._in_robot_return_phase.get(pid, False):
                 gun_near_person = False
                 for gun in guns:
                     if self._is_near(person_pos, self._get_center(gun['bbox']), frame_shape):
@@ -434,17 +463,16 @@ class StepInference:
                             recent_areas = [h[2] for h in history[-self.electric_shrink_window:]]
                             avg_area = np.mean(recent_areas)
                             if avg_area / ref_area <= self.electric_shrink_ratio:
+                                # 触发 ElectricGun
                                 self._electricgun_active[pid] = self.frame_count
                                 self._electricgun_active_until[pid] = self.frame_count + self.ELECTRICGUN_DURATION
                                 detected_step = "ElectricGun"
-                    elif self._electricgun_active.get(pid, 0) > 0 and self.frame_count <= self._electricgun_active_until.get(pid, 0):
-                        detected_step = "ElectricGun"
                 else:
                     if self._electricgun_active.get(pid, 0) > 0 and self.frame_count > self._electricgun_active_until.get(pid, 0):
                         self._electricgun_active[pid] = 0
 
-            # Step 6: RobotReturn (独立触发，但仅在未处于 RobotReturn 阶段时)
-            if detected_step is None and susp and arms and not self._in_robot_return_phase.get(pid, False):
+            # Step 6: RobotReturn - 独立触发（备用），仅在非阶段内且悬挂出现且机械手靠近时触发
+            if detected_step is None and susp_present and arms and not self._in_robot_return_phase.get(pid, False):
                 arm_pos = self._get_center(arms[0]['bbox'])
                 susp_pos = self._get_center(susp[0]['bbox'])
                 if self._is_near(arm_pos, susp_pos, frame_shape):
@@ -456,10 +484,11 @@ class StepInference:
                     result[pid] = "RobotReturn"
                     continue
 
+            # 如果本帧触发了 HandTighten 但被其他步骤抢先，记录 HandTighten 历史
             if handtighten_triggered_this_frame and detected_step != "HandTighten":
                 self._has_seen_handtighten[pid] = True
 
-            # 更新步骤状态
+            # ---------- 更新步骤状态（增加空闲超时处理） ----------
             if detected_step:
                 if self.idle_timeout > 0:
                     self._idle_counter[pid] = 0
