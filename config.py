@@ -9,9 +9,18 @@ class Config:
     MAX_CONTENT_LENGTH = 500 * 1024 * 1024           # 500MB
     SEND_FILE_MAX_AGE_DEFAULT = 0
     TZ = 'Asia/Shanghai'
-    DB_HOST = '10.3.209.59'
+    DB_HOST = 'localhost'
+    DB_HOST = '10.1.220.186'
     DB_PORT = 3306
     DB_USER = 'root'
     DB_PASSWORD = '111111'
     DB_NAME = 'ai_track_analysis'
     MODEL_PATH = os.path.join(BASE_DIR, 'best.pt')
+    
+    DEFAULT_REALTIME_SOURCE = 0
+    
+    RTSP_IP = '10.32.96.36'
+    RTSP_PORT = '554'
+    RTSP_USERNAME = 'admin'
+    RTSP_PASSWORD = 'Sgmw@5050'
+    RTSP_PATH = '/Streaming/Channels/101'

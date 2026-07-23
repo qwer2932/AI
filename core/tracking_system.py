@@ -27,7 +27,7 @@ from core.step_inference import StepInference
 
 
 class TrackingSystem:
-    def __init__(self, model_path, conf_threshold=0.5, iou_threshold=0.45):
+    def __init__(self, model_path, conf_threshold=0.15, iou_threshold=0.45):
         """
         初始化追踪系统
         
@@ -42,6 +42,7 @@ class TrackingSystem:
         self.model_path = model_path
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold
+        self.fp16 = torch.cuda.is_available()
         
         # 初始化模型和追踪器
         self._load_models()
@@ -49,8 +50,18 @@ class TrackingSystem:
     def _load_models(self):
         """加载YOLO模型和DeepSORT追踪器"""
         try:
-            # 加载YOLO模型
+<<<<<<< HEAD
+            import torch
+            from ultralytics.nn.tasks import DetectionModel
+            torch.serialization.add_safe_globals([DetectionModel])
+            
+=======
+            # 加载YOLO模型（优先使用GPU）
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+>>>>>>> d1f83ce635cc39678df0eac24784ba85e9e21cd8
             self.yolo_model = YOLO(self.model_path)
+            self.yolo_model.to(device)
+            print(f"模型已加载到: {device.upper()}")
             self.class_names = {
                 0: "person",              # 工人
                 1: "310C",               # 车型1（车身）
@@ -113,8 +124,8 @@ class TrackingSystem:
             tuple: (处理后的图像, 检测结果, 追踪结果)
         """
         try:
-            # YOLOv8检测
-            results = self.yolo_model(frame, conf=self.conf_threshold, iou=self.iou_threshold)[0]
+            # YOLOv8检测（使用GPU，启用FP16加速）
+            results = self.yolo_model(frame, conf=self.conf_threshold, iou=self.iou_threshold, device=self.yolo_model.device, half=self.fp16)[0]
             
             # 提取检测结果
             detections = []
@@ -124,8 +135,14 @@ class TrackingSystem:
                 class_ids = results.boxes.cls.cpu().numpy().astype(int)
                 
                 for i, (box, conf, cls_id) in enumerate(zip(boxes, confidences, class_ids)):
-                    if conf >= self.conf_threshold and cls_id in [0, 1, 2, 3, 4, 5, 6]:  # 追踪所有行为类别
-                        # 转换为DeepSORT格式 (x1, y1, w, h)
+                    if cls_id not in [0, 1, 2, 3, 4, 5, 6]:
+                        continue
+                    
+                    class_threshold = self.conf_threshold
+                    if cls_id in [4, 5, 6]:
+                        class_threshold = 0.10
+                    
+                    if conf >= class_threshold:
                         x1, y1, x2, y2 = box
                         w, h = x2 - x1, y2 - y1
                         detections.append(([x1, y1, w, h], conf, cls_id))
