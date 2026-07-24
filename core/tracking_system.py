@@ -132,8 +132,14 @@ class TrackingSystem:
                         continue
                     
                     class_threshold = self.conf_threshold
-                    if cls_id in [4, 5, 6]:
-                        class_threshold = 0.10
+                    if cls_id == 6:  # scanner 扫码枪 - 降低阈值，提高检测率
+                        class_threshold = 0.03
+                    elif cls_id == 4:  # mechanical_arm 机械臂 - 降低阈值（影响 RobotPick/RobotReturn 触发）
+                        class_threshold = 0.05
+                    elif cls_id == 5:  # electric_gun 电枪
+                        class_threshold = 0.08
+                    elif cls_id == 7:  # suspension_assembly 悬挂 - 进一步降低（特征易缺失）
+                        class_threshold = 0.05
                     
                     if conf >= class_threshold:
                         x1, y1, x2, y2 = box
