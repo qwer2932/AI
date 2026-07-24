@@ -54,23 +54,30 @@ def init_tracking_system():
 def extract_cycles_from_step_sequence(per_frame_step_maps, fps):
     """
     从每帧步骤映射中提取装配循环。
-    允许从任意步骤开始循环，合并连续同步骤。
-    1秒超时自动结束当前步骤。
+    规则：
+    1. 只有 RobotPick 才能开始一个新循环，但连续的 RobotPick 帧合并为同一个步骤，不重复创建循环。
+    2. 没有活动循环时，所有非 RobotPick 步骤均被忽略。
+    3. 有活动循环时，所有步骤（包括 RobotReturn）都被累积到当前循环中。
+    4. 循环只在遇到一个新的 RobotPick（即当前不在 RobotPick 步骤时）或视频结束时保存。
+    5. 循环完整性：包含全部 6 个步骤（均有有效帧）才标记为完整。
     """
+    from collections import defaultdict
+
     step_order = ["RobotPick", "Scan", "RobotFix", "HandTighten", "ElectricGun", "RobotReturn"]
-    TIMEOUT_FRAMES = int(fps * 2)  # 2秒超时，适应5帧处理间隔
+    TIMEOUT_FRAMES = int(fps * 2)  # 2秒超时，用于合并连续相同步骤
 
     cycles = []
     total_frames = len(per_frame_step_maps)
 
+    # 当前循环状态
     cycle_start = None
-    cycle_step_counts = defaultdict(int)
-    current_step = None
-    step_start = None
-    step_last_seen = None
-    expected_idx = 0
+    cycle_step_counts = defaultdict(int)  # 已累积的步骤帧数
+    current_step = None        # 当前正在累积的步骤名
+    step_start = None          # 当前步骤起始帧
+    step_last_seen = None      # 当前步骤最后出现帧
 
     def close_step():
+        """结束当前步骤，将帧数累加到循环"""
         nonlocal current_step, step_start, step_last_seen, cycle_step_counts
         if current_step is not None and step_start is not None and step_last_seen is not None:
             duration = step_last_seen - step_start + 1
@@ -80,7 +87,8 @@ def extract_cycles_from_step_sequence(per_frame_step_maps, fps):
         step_start = None
         step_last_seen = None
 
-    def close_cycle(end_frame, complete):
+    def save_cycle(end_frame, complete):
+        """保存当前循环并重置"""
         nonlocal cycle_start, cycle_step_counts
         if cycle_start is not None:
             total_frames_cycle = end_frame - cycle_start + 1
@@ -107,90 +115,57 @@ def extract_cycles_from_step_sequence(per_frame_step_maps, fps):
                     step = s
                     break
 
-        # 超时检测
+        # ---------- 超时检测：如果当前步骤超过 TIMEOUT_FRAMES 未出现，结束它 ----------
         if current_step is not None and step_last_seen is not None:
             if frame_idx - step_last_seen > TIMEOUT_FRAMES:
                 close_step()
 
-        # 延续相同步骤（合并连续同步骤）
-        if current_step == step:
-            step_last_seen = frame_idx
-            continue
-
-        # ---------- RobotReturn ----------
-        if step == "RobotReturn":
-            if cycle_start is None:
-                # 无活动循环：创建仅含RobotReturn的循环
-                cycle_start = frame_idx
-                cycle_step_counts = defaultdict(int)
-                if current_step is not None:
-                    close_step()
-                current_step = "RobotReturn"
-                step_start = frame_idx
-                step_last_seen = frame_idx
-                expected_idx = 0
-                continue
-            else:
-                # 有活动循环：结束循环
-                if current_step is not None:
-                    close_step()
-                # 将本帧RobotReturn计入
-                cycle_step_counts["RobotReturn"] += 1
-                close_cycle(frame_idx, complete=True)
-                expected_idx = 0
-                current_step = None
-                step_start = None
-                step_last_seen = None
-                continue
-
-        # ---------- RobotPick ----------
+        # ---------- 处理 RobotPick ----------
         if step == "RobotPick":
-            # 如果有活动循环，先关闭当前步骤并保存循环
+            # 如果当前正在累积的步骤就是 RobotPick，则只是延续，不开启新循环
+            if current_step == "RobotPick":
+                step_last_seen = frame_idx
+                continue
+            # 否则，遇到新的 RobotPick，开始新循环
+            # 结束当前步骤
+            if current_step is not None:
+                close_step()
+            # 保存之前的循环（如果有）
             if cycle_start is not None:
-                if current_step is not None:
-                    close_step()
-                close_cycle(frame_idx - 1, complete=False)
+                all_steps_present = all(s in cycle_step_counts for s in step_order)
+                save_cycle(frame_idx - 1, complete=all_steps_present)
             # 开始新循环
             cycle_start = frame_idx
             cycle_step_counts = defaultdict(int)
             current_step = "RobotPick"
             step_start = frame_idx
             step_last_seen = frame_idx
-            expected_idx = 1
             continue
 
-        # ---------- 其他步骤（Scan, RobotFix, HandTighten, ElectricGun） ----------
+        # ---------- 如果没有活动循环，忽略所有其他步骤 ----------
+        if cycle_start is None:
+            continue
+
+        # ---------- 处理其他步骤（包括 RobotReturn） ----------
         if step is not None and step in step_order:
-            if cycle_start is None:
-                cycle_start = frame_idx
-                cycle_step_counts = defaultdict(int)
-                expected_idx = 0
-
-            step_idx = step_order.index(step)
-
-            if step_idx == expected_idx:
-                if current_step is not None:
-                    close_step()
-                current_step = step
-                step_start = frame_idx
+            # 如果当前正在累积的步骤与 step 相同，则更新最后出现帧
+            if current_step == step:
                 step_last_seen = frame_idx
-                expected_idx = (step_idx + 1) % len(step_order)
-            elif step_idx > expected_idx:
-                if current_step is not None:
-                    close_step()
-                current_step = step
-                step_start = frame_idx
-                step_last_seen = frame_idx
-                expected_idx = (step_idx + 1) % len(step_order)
             else:
-                # 顺序错误（重复或倒退），忽略本帧
-                pass
+                # 不同步骤，结束当前步骤，开始新步骤
+                if current_step is not None:
+                    close_step()
+                current_step = step
+                step_start = frame_idx
+                step_last_seen = frame_idx
+        # step 为 None，不处理
 
-    # 视频结束，收尾
+    # 视频结束，保存当前循环
     if current_step is not None:
         close_step()
     if cycle_start is not None:
-        close_cycle(total_frames, complete=False)
+        all_steps_present = all(s in cycle_step_counts for s in step_order)
+        save_cycle(total_frames, complete=all_steps_present)
 
     return cycles
 
@@ -199,6 +174,8 @@ def analyze_behavior(tracking_result, video_info, fps):
     """
     直接从 per_frame_step_maps 统计步骤信息，不再重新运行推理。
     """
+    from collections import defaultdict
+
     per_frame_step_maps = tracking_result.get('per_frame_step_maps', [])
 
     # 统计每个 track_id 的步骤出现帧数
@@ -271,8 +248,8 @@ def calculate_analysis_stats(per_frame_step_maps, cycles, fps, video_info):
     compliance_rate = (appeared_step_count / total_step_slots * 100) if total_step_slots > 0 else 0
 
     # 2. 操作时间与理论时间比
-    total_time = video_info.get('duration', 0)  # 视频总时长（秒）
-    one_cycle_theoretical_time = sum(THEORETICAL_TIMES.values())  # 44秒
+    total_time = video_info.get('duration', 0)
+    one_cycle_theoretical_time = sum(THEORETICAL_TIMES.values())
     total_theoretical_time = len(cycles) * one_cycle_theoretical_time
     time_ratio = (total_time / total_theoretical_time * 100) if total_theoretical_time > 0 else 0
 
@@ -282,7 +259,6 @@ def calculate_analysis_stats(per_frame_step_maps, cycles, fps, video_info):
         steps = cycle.get('steps', {})
         for step_name, duration in steps.items():
             operation_time += duration
-    
     wait_time = max(0, total_time - operation_time)
     wait_ratio = (wait_time / total_time * 100) if total_time > 0 else 0
 
@@ -376,7 +352,7 @@ def run_analysis(analysis_id, filepath, original_filename=None):
             'original_filename': original_filename
         }
 
-        # 保存到数据库（如果 db_manager 可用）
+        # 保存到数据库
         if core.state.db_manager is not None:
             try:
                 core.state.db_manager.save_analysis_result(final_result)

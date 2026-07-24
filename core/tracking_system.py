@@ -50,8 +50,15 @@ class TrackingSystem:
     def _load_models(self):
         """加载YOLO模型和DeepSORT追踪器"""
         try:
+<<<<<<< HEAD
+            import torch
+            from ultralytics.nn.tasks import DetectionModel
+            torch.serialization.add_safe_globals([DetectionModel])
+            
+=======
             # 加载YOLO模型（优先使用GPU）
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
+>>>>>>> d1f83ce635cc39678df0eac24784ba85e9e21cd8
             self.yolo_model = YOLO(self.model_path)
             self.yolo_model.to(device)
             print(f"模型已加载到: {device.upper()}")

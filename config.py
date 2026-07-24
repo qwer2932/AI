@@ -10,6 +10,7 @@ class Config:
     SEND_FILE_MAX_AGE_DEFAULT = 0
     TZ = 'Asia/Shanghai'
     DB_HOST = 'localhost'
+    DB_HOST = '10.1.220.186'
     DB_PORT = 3306
     DB_USER = 'root'
     DB_PASSWORD = '111111'
