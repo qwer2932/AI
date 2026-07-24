@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 
 # 导入 core.state 模块（不要直接导入变量）
 import core.state
+from core.state import step_chain, STEP_CHAIN_ORDER, reset_step_chain, update_step_chain
 from service.analysis_service import run_analysis, update_progress, init_tracking_system
 from service.balance_service import calculate_line_balance
 from core.utils import allowed_file
@@ -767,7 +768,7 @@ def _realtime_inference_loop():
                             confidence = float(obj['confidence'])
                             track_id = tid
                     break
-        
+
         if not current_step and tracked_objects:
             for obj in tracked_objects:
                 if obj['class_id'] == 0:
@@ -775,6 +776,11 @@ def _realtime_inference_loop():
                     confidence = float(obj['confidence'])
                     track_id = int(obj['track_id'])
                     break
+
+        # 驱动实时步骤链：所有 6 步均由真实视频检测结果触发
+        # 仅在 6 步链内（含 RobotReturn）才更新；'Idle' 不进入步骤链
+        if current_step and current_step in STEP_CHAIN_ORDER:
+            update_step_chain(current_step, frame_count=frame_count)
         
         try:
             if core.state.tracking_system:
@@ -867,7 +873,10 @@ def start_realtime():
             'updated_at': int(time.time()),
             'step_history': []
         })
-        
+
+        # 重置实时步骤链：让新一轮分析从 RobotPick 开始
+        reset_step_chain()
+
         _realtime_stop_event.clear()
         _realtime_thread = threading.Thread(target=_realtime_analysis_loop, daemon=True)
         _realtime_thread.start()
@@ -921,6 +930,48 @@ def get_realtime_status():
         return jsonify(status)
     except Exception as e:
         print(f"获取实时状态失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp.route('/realtime/step_chain', methods=['GET'])
+def get_realtime_step_chain():
+    """
+    获取实时步骤链状态（6 步真实视频驱动）。
+    返回字段:
+      - order: 步骤顺序
+      - current_index: 当前步骤在链中的索引（-1=未开始）
+      - current_step: 当前步骤名
+      - last_step: 上一步骤
+      - cycle_count: 已完成循环数
+      - in_cycle: 是否处于循环中
+      - step_frame_counts: 各步累计帧数
+      - cycle_frame_counts: 当前循环中各步累计帧数
+      - step_completed_in_cycle: 当前循环中各步是否完成
+      - step_started_at: 各步本次循环起始时间戳
+      - last_step_change_at: 上次步骤变化时间戳
+      - last_step_change_frame: 上次步骤变化时的帧号
+      - frame_count: 步骤链累计处理帧数
+      - step_history: 步骤切换历史
+      - updated_at: 更新时间戳
+    """
+    try:
+        import copy
+        snapshot = copy.deepcopy(step_chain)
+        snapshot['success'] = True
+        return jsonify(snapshot)
+    except Exception as e:
+        print(f"获取步骤链失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp.route('/realtime/step_chain/reset', methods=['POST'])
+def reset_realtime_step_chain():
+    """手动重置实时步骤链（用于重新开始计数）"""
+    try:
+        reset_step_chain()
+        return jsonify({'success': True, 'message': '步骤链已重置'})
+    except Exception as e:
+        print(f"重置步骤链失败: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

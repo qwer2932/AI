@@ -82,7 +82,7 @@ class StepInference:
         # 机械臂 x 位置历史
         self._arm_x_history = defaultdict(list)    # {pid: [x1, x2, ...]}  机械臂也按pid跟踪（实际可能只有一个）
         self.X_HISTORY_LEN = 5   # 累积几帧的位移
-        self.X_DISP_THRESHOLD = 5  # 累积位移 > N 像素 → 向右移动
+        self.X_DISP_THRESHOLD = 3  # 累积位移 > N 像素 → 向右移动（降低阈值，让 RobotReturn 更易触发）
         # RobotReturn 阶段：一旦触发后，整段直到 RobotPick 都算 RobotReturn
         self._in_robot_return_phase = defaultdict(bool)
         # HandTighten 确认帧数（保留原字段，实际改用滑动窗口）
@@ -106,6 +106,15 @@ class StepInference:
         self._electricgun_active = defaultdict(int)
         # 记录 person 是否曾进入过 HandTighten（用于 ElectricGun 的前提判断）
         self._has_seen_handtighten = defaultdict(bool)
+        # 记录 person 是否曾进入过 ElectricGun（用于 RobotReturn 的前提判断，本轮已出现 ElectricGun 才允许触发 RobotReturn）
+        self._has_seen_electricgun = defaultdict(bool)
+        # 悬挂（susp）最近 N 帧出现历史（用于 RobotPick 的"悬挂左成"短促判定的容错）
+        self._susp_recent_frames = defaultdict(lambda: deque(maxlen=10))  # 最近 10 帧
+        self.SUSP_RECENT_WINDOW = 10  # 悬挂容错窗口（帧数）
+        # 悬挂最近一次出现的中心位置（供 RobotPick 在 susp 缺失时回退使用）
+        self._last_susp_pos = {}
+        # 悬挂最近一次出现在取料区（pick zone）的帧号
+        self._susp_in_pick_zone_recent = defaultdict(int)
         # 记录 HandTighten 触发时的电枪面积（作为 ElectricGun 触发的基准）
         self._handtighten_gun_area = {}
         # RobotFix 阶段标记
@@ -142,12 +151,20 @@ class StepInference:
         self._electricgun_active.clear()
         self._electricgun_active_until.clear()
         self._has_seen_handtighten.clear()
+        self._has_seen_electricgun.clear()
+        self._susp_recent_frames.clear()
+        self._last_susp_pos.clear()
+        self._susp_in_pick_zone_recent.clear()
         self._electric_shrink_window_data.clear()
         self._idle_counter.clear()
 
     def _get_center(self, bbox):
         """从边界框 [x1, y1, x2, y2] 获取中心点"""
         return ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+
+    def _susp_recently_in_pick_zone(self, pid):
+        """检查 pid 在容错窗口内是否曾出现 susp 在取料区（pick zone）的悬挂"""
+        return self.frame_count - self._susp_in_pick_zone_recent.get(pid, 0) <= self.SUSP_RECENT_WINDOW
 
     def _get_bbox_area(self, bbox):
         """获取边界框面积"""
@@ -324,6 +341,10 @@ class StepInference:
             detected_step = None
 
             # 区域判定：悬挂在右侧 1/5 算 RobotPick，否则 RobotFix
+            # 更新悬挂（susp）出现历史的滑动窗口
+            self._susp_recent_frames[pid].append(1 if susp else 0)
+            susp_recent_any = any(self._susp_recent_frames[pid])  # 最近窗口内是否出现过
+
             if susp:
                 susp_pos = self._get_center(susp[0]['bbox'])
                 susp_x_ratio = susp_pos[0] / w
@@ -339,14 +360,26 @@ class StepInference:
                 susp_in_pick_zone = False
 
             self._suspension_on_right[pid] = susp_in_pick_zone
+            if susp_in_pick_zone:
+                # 记录本次 susp 在取料区出现的帧号（用于 RobotPick 容错判定）
+                self._susp_in_pick_zone_recent[pid] = self.frame_count
+            # 记录最近一次出现 susp 的中心位置（供 susp 缺失帧回退使用）
+            if susp:
+                self._last_susp_pos[pid] = self._get_center(susp[0]['bbox'])
 
             # Step 1: RobotPick
-            if arms and susp and persons and susp_in_pick_zone and detected_step is None:
+            # 条件：arms + persons + (susp 当前帧 或 最近 SUSP_RECENT_WINDOW 帧内出现过) + 其他条件满足
+            if arms and persons and (susp or susp_recent_any) and detected_step is None:
+                # 计算 arm 与 susp 的位置关系
                 arm_pos = self._get_center(arms[0]['bbox'])
-                susp_pos = self._get_center(susp[0]['bbox'])
-                if self._is_near(arm_pos, susp_pos, frame_shape):
-                    detected_step = "RobotPick"
-                    self._in_robot_return_phase[pid] = False   # 强制退出 RobotReturn
+                susp_pos = self._get_center(susp[0]['bbox']) if susp else self._last_susp_pos.get(pid)
+                if susp_pos is not None and self._is_near(arm_pos, susp_pos, frame_shape):
+                    # 额外要求：当前帧 susp 在右侧 1/5，或最近窗口内 susp 出现在右侧 1/5
+                    if susp_in_pick_zone or self._susp_recently_in_pick_zone(pid):
+                        detected_step = "RobotPick"
+                        self._in_robot_return_phase[pid] = False   # 强制退出 RobotReturn
+                        if susp:
+                            self._last_susp_pos[pid] = susp_pos
 
             # Step 3: RobotFix
             if susp and not susp_in_pick_zone and detected_step is None:
