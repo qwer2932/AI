@@ -15,7 +15,8 @@ from flask import Flask
 from config import Config
 from exts import cors
 from core.utils import create_directories
-from service.analysis_service import init_tracking_system as _init_tracking
+# 不再启动时初始化追踪系统
+# from service.analysis_service import init_tracking_system as _init_tracking
 from blueprints.main import bp as main_bp
 from blueprints.api import bp as api_bp
 
@@ -36,9 +37,9 @@ def create_app(config_class=Config):
     # 创建必要目录（uploads, results）
     create_directories(app)
 
-    # 初始化追踪系统（包含数据库连接）
-    with app.app_context():
-        _init_tracking()   # 会设置 tracking_system, db_manager
+    # 不在此处初始化追踪系统，改为在第一次分析时懒加载
+    # with app.app_context():
+    #     _init_tracking()   # 注释掉
 
     # 注册蓝图
     app.register_blueprint(main_bp)
@@ -53,4 +54,5 @@ if __name__ == '__main__':
     port = 5000
     print("=" * 60)
     print("AI视频追踪分析系统")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print(f"访问地址: http://{local_ip}:{port}")
+    app.run(host='0.0.0.0', port=5003, debug=False)  

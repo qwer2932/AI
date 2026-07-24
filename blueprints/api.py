@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-API 蓝图 - 所有后端接口
+API 蓝图 - 完整版（含实时流）
 """
-
 import os
 import json
 import uuid
@@ -11,18 +10,321 @@ import time
 import threading
 import shutil
 import cv2
+import logging
 from flask import Blueprint, request, jsonify, send_from_directory, send_file, current_app, Response
 from werkzeug.utils import secure_filename
 
-# 导入 core.state 模块（不要直接导入变量）
 import core.state
-from service.analysis_service import run_analysis, update_progress, init_tracking_system
+from service.analysis_service import run_analysis
 from service.balance_service import calculate_line_balance
 from core.utils import allowed_file
 from config import Config
 
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
+
+# 导入宇视取流
+try:
+    from service.UniviewService import UNIVIEW_DLL, get_uniview_stream, release_uniview_stream
+except ImportError:
+    UNIVIEW_DLL = None
+    get_uniview_stream = None
+    release_uniview_stream = None
+    logger.warning("UniviewService not available")
+
 bp = Blueprint('api', __name__, url_prefix='/api')
 
+# ==================== 实时视频流相关 ====================
+_realtime_auto_started = False
+_realtime_thread = None
+_realtime_stop_event = threading.Event()
+_realtime_cap = None
+_realtime_frame_lock = threading.Lock()
+_realtime_push_frame_lock = threading.Lock()
+_realtime_last_pushed_frame = None
+_realtime_push_interval = 0.033
+_frame_counter = 0
+
+def _ensure_realtime_started():
+    global _realtime_auto_started, _realtime_thread, _realtime_stop_event
+    if _realtime_auto_started:
+        return
+    _realtime_auto_started = True
+    _realtime_stop_event.clear()
+    print(">>> _ensure_realtime_started 被调用")
+    logger.info("启动实时分析线程")
+
+    # 检测宇视SDK
+    source_type = 'camera'
+    if UNIVIEW_DLL is not None and get_uniview_stream is not None:
+        try:
+            cap = get_uniview_stream()
+            if cap and cap.is_running():
+                source_type = 'uniview'
+                print("使用宇视SDK取流")
+                logger.info("使用宇视SDK取流")
+            else:
+                print("宇视取流对象未就绪，回退到OpenCV")
+                logger.warning("宇视取流对象未就绪，回退到OpenCV")
+        except Exception as e:
+            print(f"宇视取流初始化失败: {e}，回退到OpenCV")
+            logger.error(f"宇视取流初始化失败: {e}，回退到OpenCV")
+    else:
+        print("宇视SDK未加载，使用OpenCV摄像头")
+        logger.info("宇视SDK未加载，使用OpenCV摄像头")
+
+    core.state.realtime_status['source_type'] = source_type
+    core.state.realtime_status['is_running'] = True
+    core.state.realtime_status['current_step'] = 'Idle'
+    core.state.realtime_status['updated_at'] = int(time.time())
+
+    _realtime_thread = threading.Thread(target=_realtime_analysis_loop, daemon=True)
+    _realtime_thread.start()
+    print("实时分析线程已启动")
+    logger.info("实时分析线程已启动")
+
+def _realtime_capture_loop():
+    global _realtime_last_pushed_frame, _realtime_frame_lock, _realtime_push_frame_lock, _realtime_stop_event,_realtime_cap, _frame_counter
+    print("=== 采集线程启动 ===")
+    logger.info("采集线程启动")
+
+    source_type = core.state.realtime_status.get('source_type', 'camera')
+
+    if source_type == 'uniview':
+        if get_uniview_stream is None:
+            print("宇视取流服务不可用，回退到摄像头0")
+            core.state.realtime_status['source_type'] = 'camera'
+            _realtime_capture_loop()
+            return
+        try:
+            cap = get_uniview_stream()
+            if cap is None:
+                print("宇视取流失败，回退到摄像头0")
+                core.state.realtime_status['source_type'] = 'camera'
+                _realtime_capture_loop()
+                return
+            while not _realtime_stop_event.is_set():
+                frame = cap.get_frame()
+                if frame is not None:
+                    with _realtime_frame_lock:
+                        core.state._last_frame = frame
+                        _frame_counter += 1
+                        if _frame_counter % 30 == 0:
+                            print(f"采集到宇视帧 #{_frame_counter}, 尺寸: {frame.shape}")
+                else:
+                    time.sleep(0.001)
+            return
+        except Exception as e:
+            print(f"宇视取流异常: {e}，回退到摄像头0")
+            core.state.realtime_status['source_type'] = 'camera'
+            _realtime_capture_loop()
+            return
+
+    # OpenCV 取流
+    camera_index = core.state.realtime_status.get('camera_index', 0)
+    print(f"使用OpenCV摄像头 index={camera_index}")
+    _realtime_cap = cv2.VideoCapture(camera_index)
+    if not _realtime_cap.isOpened():
+        print(f"无法打开摄像头 {camera_index}")
+        core.state.realtime_status['error'] = f'无法打开摄像头 {camera_index}'
+        return
+
+    while not _realtime_stop_event.is_set():
+        ret, frame = _realtime_cap.read()
+        if ret:
+            with _realtime_frame_lock:
+                core.state._last_frame = frame.copy()
+                _frame_counter += 1
+                if _frame_counter % 30 == 0:
+                    print(f"采集到OpenCV帧 #{_frame_counter}, 尺寸: {frame.shape}")
+        else:
+            time.sleep(0.01)
+
+    if _realtime_cap:
+        _realtime_cap.release()
+        _realtime_cap = None
+    print("采集线程结束")
+
+def _realtime_inference_loop():
+    global _realtime_last_pushed_frame
+    print("=== 推理线程启动 (完整版) ===")
+    logger.info("推理线程启动 (完整版)")
+
+    # 初始化步骤推理器（如果尚未初始化）
+    step_inference = None
+    try:
+        from core.step_inference import StepInference
+        step_inference = StepInference(
+            proximity_threshold=0.20,
+            warmup_frames=30,
+            handtighten_window=10,
+            handtighten_ratio=0.7,
+            electric_shrink_window=5,
+            electric_shrink_ratio=0.70,
+            idle_timeout=0
+        )
+        print("StepInference 初始化成功")
+        logger.info("StepInference 初始化成功")
+    except Exception as e:
+        print(f"StepInference初始化失败: {e}")
+        logger.error(f"StepInference初始化失败: {e}")
+
+    # 懒加载追踪系统（如果尚未初始化）
+    if core.state.tracking_system is None:
+        try:
+            from core.tracking_system import TrackingSystem
+            core.state.tracking_system = TrackingSystem(Config.MODEL_PATH, conf_threshold=0.2, iou_threshold=0.45)
+            print("追踪系统懒加载成功")
+            logger.info("追踪系统懒加载成功")
+        except Exception as e:
+            print(f"追踪系统初始化失败: {e}")
+            logger.error(f"追踪系统初始化失败: {e}")
+
+    frame_count = 0
+    last_time = time.time()
+
+    while not _realtime_stop_event.is_set():
+        frame = None
+        with _realtime_frame_lock:
+            if core.state._last_frame is not None:
+                frame = core.state._last_frame.copy()
+        if frame is None:
+            time.sleep(0.001)
+            continue
+
+        frame_count += 1
+        current_time = time.time()
+        fps = frame_count / (current_time - last_time) if (current_time - last_time) > 0 else 0
+
+        tracked_objects = []
+        step_map = {}
+        infer_start = time.time()
+
+        try:
+            if core.state.tracking_system and frame is not None:
+                # 检测 + 追踪
+                _, _, tracked_objects = core.state.tracking_system.detect_and_track(frame)
+
+                # 步骤推理
+                if step_inference and tracked_objects:
+                    step_dets = []
+                    for obj in tracked_objects:
+                        x1, y1, x2, y2 = map(float, obj['bbox'])
+                        step_dets.append({
+                            'class_name': core.state.tracking_system.class_names.get(int(obj['class_id']), f"class_{int(obj['class_id'])}"),
+                            'track_id': int(obj['track_id']),
+                            'bbox': [x1, y1, x2, y2],
+                            'confidence': float(obj['confidence']),
+                        })
+                    step_map = step_inference.infer_step(frame.shape, step_dets) or {}
+        except Exception as e:
+            print(f"推理异常: {e}")
+            logger.error(f"推理异常: {e}")
+
+        infer_ms = (time.time() - infer_start) * 1000
+
+        # 提取当前步骤和置信度（用于状态显示）
+        current_step = 'Idle'
+        confidence = 0
+        track_id = None
+        if step_map:
+            for tid, step in step_map.items():
+                if step is not None:
+                    current_step = step
+                    for obj in tracked_objects:
+                        if int(obj['track_id']) == tid:
+                            confidence = float(obj['confidence'])
+                            track_id = tid
+                    break
+
+        # 绘制追踪框和步骤，编码为 JPEG
+        try:
+            if core.state.tracking_system:
+                # 绘制追踪结果（含步骤标签）
+                tracked_frame = core.state.tracking_system._draw_tracks(frame.copy(), tracked_objects, step_map=step_map)
+                with _realtime_push_frame_lock:
+                    _, buffer = cv2.imencode('.jpg', tracked_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                    _realtime_last_pushed_frame = buffer.tobytes()
+                    if frame_count % 30 == 1:
+                        print(f"编码帧成功 #{frame_count}, 大小: {len(_realtime_last_pushed_frame)} 字节")
+        except Exception as e:
+            print(f"编码帧失败: {e}")
+            # 回退到原始帧（不加框）
+            try:
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                with _realtime_push_frame_lock:
+                    _realtime_last_pushed_frame = buffer.tobytes()
+                if frame_count % 30 == 1:
+                    print(f"编码原始帧成功 #{frame_count}, 大小: {len(_realtime_last_pushed_frame)} 字节")
+            except Exception as e2:
+                print(f"编码完全失败: {e2}")
+
+        # 更新实时状态
+        core.state.realtime_status.update({
+            'is_running': True,
+            'current_step': current_step,
+            'confidence': confidence,
+            'fps': fps,
+            'infer_ms': infer_ms,
+            'track_id': track_id,
+            'updated_at': int(time.time()),
+        })
+
+    print("推理线程结束")
+
+
+def _realtime_analysis_loop():
+    global _realtime_stop_event
+    try:
+        capture_thread = threading.Thread(target=_realtime_capture_loop)
+        capture_thread.daemon = True
+        capture_thread.start()
+        inference_thread = threading.Thread(target=_realtime_inference_loop)
+        inference_thread.daemon = True
+        inference_thread.start()
+        capture_thread.join()
+        inference_thread.join()
+    except Exception as e:
+        print(f"实时循环异常: {e}")
+        core.state.realtime_status['error'] = str(e)
+    finally:
+        core.state.realtime_status['is_running'] = False
+        _realtime_stop_event.clear()
+        print("实时循环结束")
+
+# ==================== 路由 ====================
+@bp.route('/realtime/status', methods=['GET'])
+def get_realtime_status():
+    _ensure_realtime_started()
+    return jsonify(core.state.realtime_status)
+
+@bp.route('/realtime/stream', methods=['GET'])
+def realtime_stream():
+    _ensure_realtime_started()
+    def gen():
+        print("=== 流生成器启动 ===")  # 强制输出
+        frame_count = 0
+        while not _realtime_stop_event.is_set():
+            # 每 10 次循环打印一次，避免刷屏
+            if frame_count % 10 == 0:
+                print(f"循环中, frame_count={frame_count}, stop_event={_realtime_stop_event.is_set()}")
+            time.sleep(_realtime_push_interval)
+            frame_bytes = None
+            with _realtime_push_frame_lock:
+                if _realtime_last_pushed_frame is not None:
+                    frame_bytes = _realtime_last_pushed_frame
+            if frame_bytes is None:
+                if frame_count % 10 == 0:
+                    print("流生成器: frame_bytes is None")
+                continue
+            frame_count += 1
+            print(f"发送帧 #{frame_count}, 大小: {len(frame_bytes)}")
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        print("=== 流生成器退出（stop_event set） ===")
+    return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    # ==================== 原有业务路由 ====================
 
 @bp.route('/upload', methods=['POST'])
 def upload_video():
@@ -58,7 +360,7 @@ def upload_video():
 @bp.route('/analyze', methods=['POST'])
 def analyze_video():
     """启动视频分析"""
-    print("=== 收到分析请求 ===")
+    logger.info("=== 收到分析请求 ===")
     try:
         data = request.get_json()
         filename = data.get('filename')
@@ -69,7 +371,6 @@ def analyze_video():
         filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
         if not os.path.exists(filepath):
             return jsonify({'success': False, 'error': '文件不存在'})
-        # 更新全局状态（使用 core.state 访问）
         core.state.analysis_status.update({
             'status': 'processing',
             'is_processing': True,
@@ -137,7 +438,6 @@ def get_result(analysis_id):
             result = core.state.db_manager.get_analysis_by_id(analysis_id)
             if result:
                 return jsonify(result)
-        # fallback to file
         result_file = os.path.join(current_app.config['RESULTS_FOLDER'], f"{analysis_id}.json")
         if os.path.exists(result_file):
             with open(result_file, 'r', encoding='utf-8') as f:
@@ -173,12 +473,13 @@ def _init_db_if_needed():
                 database=Config.DB_NAME
             )
             core.state.db_manager = db
-            print("延迟初始化数据库连接成功")
+            logger.info("延迟初始化数据库连接成功")
         except Exception as e:
-            print(f"延迟初始化数据库失败: {e}")
+            logger.error(f"延迟初始化数据库失败: {e}")
             core.state.db_manager = None
 
-# -------------------- 历史记录相关接口（需数据库支持）--------------------
+
+# ==================== 历史记录相关接口（需数据库支持） ====================
 
 @bp.route('/history', methods=['GET'])
 def get_history():
@@ -199,15 +500,12 @@ def get_history():
         date = request.args.get('date', type=str)
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
-        
-        # 优先使用日期筛选
         if date:
             history, total = core.state.db_manager.get_analysis_history_by_date_paginated(date, page, per_page)
         elif days:
             history, total = core.state.db_manager.get_analysis_history_by_days_paginated(days, page, per_page)
         else:
             history, total = core.state.db_manager.get_analysis_history_all_paginated(page, per_page)
-            
         return jsonify({
             'success': True,
             'data': history,
@@ -244,11 +542,7 @@ def get_history_detail(analysis_id):
 
 
 def _delete_result_file(analysis_id: str) -> int:
-    """删除 results 和 uploads 目录下指定分析ID的相关文件。
-
-    Returns:
-        int: 删除成功的文件数量
-    """
+    """删除 results 和 uploads 目录下指定分析ID的相关文件"""
     deleted_count = 0
     try:
         upload_filename = None
@@ -262,7 +556,7 @@ def _delete_result_file(analysis_id: str) -> int:
                     upload_filename = row[0]
                 conn.close()
             except Exception as e:
-                print(f"获取上传文件名失败 {analysis_id}: {e}")
+                logger.error(f"获取上传文件名失败 {analysis_id}: {e}")
 
         upload_folder = current_app.config['UPLOAD_FOLDER']
         results_folder = current_app.config['RESULTS_FOLDER']
@@ -279,9 +573,9 @@ def _delete_result_file(analysis_id: str) -> int:
                     os.remove(result_file)
                     deleted_count += 1
                 except Exception as e:
-                    print(f"删除文件失败 {result_file}: {e}")
+                    logger.error(f"删除文件失败 {result_file}: {e}")
     except Exception as e:
-        print(f"删除文件失败 {analysis_id}: {e}")
+        logger.error(f"删除文件失败 {analysis_id}: {e}")
     return deleted_count
 
 
@@ -291,10 +585,8 @@ def delete_history(analysis_id):
     _init_db_if_needed()
     try:
         deleted_files = _delete_result_file(analysis_id)
-
         if core.state.db_manager and not core.state.db_manager.delete_analysis(analysis_id):
             return jsonify({'success': False, 'error': '删除失败'}), 200
-
         return jsonify({'success': True, 'message': f'删除成功，已移除 {deleted_files} 个文件'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 200
@@ -525,475 +817,8 @@ def get_result_video(filename):
     file_path = os.path.join(current_app.config['RESULTS_FOLDER'], filename)
     if not os.path.exists(file_path):
         return jsonify({'error': '视频文件不存在'}), 404
-    # 根据扩展名设置MIME类型
     if filename.endswith('.avi'):
         mimetype = 'video/x-msvideo'
     else:
         mimetype = 'video/mp4'
     return send_file(file_path, mimetype=mimetype, as_attachment=False, download_name=filename, conditional=False)
-
-
-# -------------------- RTSP视频流代理接口 --------------------
-
-def gen_frames(rtsp_url):
-    """生成RTSP视频流的帧数据"""
-    cap = cv2.VideoCapture(rtsp_url)
-    if not cap.isOpened():
-        print(f"无法打开RTSP流: {rtsp_url}")
-        return
-    
-    try:
-        while True:
-            success, frame = cap.read()
-            if not success:
-                break
-            
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            if not ret:
-                continue
-            
-            frame_bytes = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-    finally:
-        cap.release()
-
-
-@bp.route('/rtsp/stream', methods=['GET'])
-def rtsp_stream():
-    """RTSP视频流代理 - 将RTSP流转换为MJPEG流供浏览器播放"""
-    try:
-        ip = request.args.get('ip')
-        port = request.args.get('port', '554')
-        username = request.args.get('username', 'admin')
-        password = request.args.get('password', '')
-        path = request.args.get('path', '/Streaming/Channels/101')
-        
-        if not ip:
-            return jsonify({'error': '请提供摄像头IP地址'}), 400
-        
-        rtsp_url = f"rtsp://{username}:{password}@{ip}:{port}{path}"
-        print(f"尝试连接RTSP流: rtsp://{username}:***@{ip}:{port}{path}")
-        
-        return Response(gen_frames(rtsp_url),
-                        mimetype='multipart/x-mixed-replace; boundary=frame')
-    except Exception as e:
-        print(f"RTSP流错误: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@bp.route('/rtsp/test', methods=['GET'])
-def rtsp_test():
-    """测试RTSP连接"""
-    try:
-        ip = request.args.get('ip')
-        port = request.args.get('port', '554')
-        username = request.args.get('username', 'admin')
-        password = request.args.get('password', '')
-        path = request.args.get('path', '/Streaming/Channels/101')
-        
-        if not ip:
-            return jsonify({'success': False, 'error': '请提供摄像头IP地址'}), 400
-        
-        rtsp_url = f"rtsp://{username}:{password}@{ip}:{port}{path}"
-        print(f"测试RTSP连接: rtsp://{username}:***@{ip}:{port}{path}")
-        
-        cap = cv2.VideoCapture(rtsp_url)
-        success = cap.isOpened()
-        
-        if success:
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            cap.release()
-            return jsonify({
-                'success': True,
-                'message': 'RTSP连接成功',
-                'video_info': {
-                    'fps': fps,
-                    'width': width,
-                    'height': height
-                }
-            })
-        else:
-            cap.release()
-            return jsonify({'success': False, 'error': '无法连接到RTSP流，请检查IP、端口和认证信息'}), 500
-    except Exception as e:
-        print(f"RTSP测试错误: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# -------------------- 实时分析接口 --------------------
-
-_realtime_thread = None
-_realtime_stop_event = threading.Event()
-_realtime_cap = None
-_realtime_frame_lock = threading.Lock()
-_realtime_step_lock = threading.Lock()
-_realtime_push_frame_lock = threading.Lock()
-_realtime_last_pushed_frame = None
-_realtime_push_interval = 0.033
-
-
-def _realtime_capture_loop():
-    """采集线程：持续读取视频帧，只保留最新帧"""
-    global _realtime_cap
-    
-    source_type = core.state.realtime_status.get('source_type', 'camera')
-    
-    if source_type == 'camera':
-        camera_index = core.state.realtime_status.get('camera_index', 0)
-        print(f"采集线程开始: 摄像头 index={camera_index}")
-        _realtime_cap = cv2.VideoCapture(camera_index)
-    else:
-        rtsp_url = core.state.realtime_status.get('rtsp_url', '')
-        if not rtsp_url:
-            rtsp_url = core.state.realtime_status.get('video_path', '')
-        
-        if not rtsp_url:
-            core.state.realtime_status['error'] = '未配置视频源'
-            return
-        
-        print(f"采集线程开始: {rtsp_url}")
-        _realtime_cap = cv2.VideoCapture(rtsp_url)
-        
-        _realtime_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    
-    if not _realtime_cap.isOpened():
-        if source_type == 'camera':
-            print(f"无法打开摄像头: index={camera_index}")
-            core.state.realtime_status['error'] = f'无法打开摄像头，请检查设备连接'
-        else:
-            print(f"无法打开视频流: {rtsp_url}")
-            core.state.realtime_status['error'] = f'无法打开视频流: {rtsp_url}'
-        return
-    
-    frame_count = 0
-    fail_count = 0
-    last_read_time = time.time()
-    read_intervals = []
-    
-    while not _realtime_stop_event.is_set():
-        start_time = time.time()
-        ret, frame = _realtime_cap.read()
-        
-        if ret:
-            with _realtime_frame_lock:
-                core.state._last_frame = frame.copy()
-            frame_count += 1
-            
-            if last_read_time > 0:
-                interval = (start_time - last_read_time) * 1000
-                read_intervals.append(interval)
-                if len(read_intervals) > 60:
-                    read_intervals.pop(0)
-            
-            last_read_time = start_time
-            
-            if frame_count % 60 == 0:
-                avg_interval = sum(read_intervals) / len(read_intervals) if read_intervals else 0
-                max_interval = max(read_intervals) if read_intervals else 0
-                fail_rate = (fail_count / (frame_count + fail_count)) * 100 if (frame_count + fail_count) > 0 else 0
-                print(f"[采集] 帧:{frame_count}, 尺寸:{frame.shape}, "
-                      f"平均间隔:{avg_interval:.1f}ms, 最大间隔:{max_interval:.1f}ms, "
-                      f"失败率:{fail_rate:.1f}%")
-        else:
-            fail_count += 1
-            print(f"[采集] 读取帧失败 (累计失败:{fail_count})")
-            time.sleep(0.01)
-    
-    if _realtime_cap:
-        _realtime_cap.release()
-        _realtime_cap = None
-    print("采集线程结束")
-
-
-def _realtime_inference_loop():
-    """推理线程：每帧都进行推理"""
-    step_inference = None
-    try:
-        from core.step_inference import StepInference
-        step_inference = StepInference(
-            proximity_threshold=0.20,
-            warmup_frames=30,
-            handtighten_window=10,
-            handtighten_ratio=0.7,
-            electric_shrink_window=5,
-            electric_shrink_ratio=0.70,
-            idle_timeout=0
-        )
-    except Exception as e:
-        print(f"StepInference初始化失败: {e}")
-    
-    frame_count = 0
-    last_time = time.time()
-    debug_interval = 30
-    
-    while not _realtime_stop_event.is_set():
-        frame = None
-        with _realtime_frame_lock:
-            if core.state._last_frame is not None:
-                frame = core.state._last_frame.copy()
-        
-        if frame is None:
-            time.sleep(0.001)
-            continue
-        
-        frame_count += 1
-        current_time = time.time()
-        elapsed = current_time - last_time
-        if elapsed > 0:
-            fps = frame_count / elapsed
-        
-        infer_start = time.time()
-        
-        tracked_objects = []
-        step_map = {}
-        
-        try:
-            if core.state.tracking_system and frame is not None:
-                _, _, tracked_objects = core.state.tracking_system.detect_and_track(frame)
-                
-                if frame_count % debug_interval == 0:
-                    detected_classes = []
-                    for obj in tracked_objects:
-                        cls_name = core.state.tracking_system.class_names.get(int(obj['class_id']), f"class_{int(obj['class_id'])}")
-                        detected_classes.append(f"{cls_name}(conf={float(obj['confidence']):.2f})")
-                    print(f"[DEBUG] 帧{frame_count} 检测到: {', '.join(detected_classes) if detected_classes else '无'}")
-                
-                if step_inference and tracked_objects:
-                    step_dets = []
-                    for obj in tracked_objects:
-                        x1, y1, x2, y2 = map(float, obj['bbox'])
-                        step_dets.append({
-                            'class_name': core.state.tracking_system.class_names.get(int(obj['class_id']), f"class_{int(obj['class_id'])}"),
-                            'track_id': int(obj['track_id']),
-                            'bbox': [x1, y1, x2, y2],
-                            'confidence': float(obj['confidence']),
-                        })
-                    step_map = step_inference.infer_step(frame.shape, step_dets) or {}
-                    
-                    if step_map and frame_count % debug_interval == 0:
-                        print(f"[DEBUG] 帧{frame_count} 步骤推理结果: {step_map}")
-        except Exception as e:
-            print(f"实时分析异常: {e}")
-        
-        infer_ms = (time.time() - infer_start) * 1000
-        
-        current_step = 'Idle'
-        confidence = 0
-        track_id = None
-        
-        if step_map:
-            for tid, step in step_map.items():
-                if step is not None:
-                    current_step = step
-                    for obj in tracked_objects:
-                        if int(obj['track_id']) == tid:
-                            confidence = float(obj['confidence'])
-                            track_id = tid
-                    break
-        
-        if not current_step and tracked_objects:
-            for obj in tracked_objects:
-                if obj['class_id'] == 0:
-                    current_step = 'Idle'
-                    confidence = float(obj['confidence'])
-                    track_id = int(obj['track_id'])
-                    break
-        
-        try:
-            if core.state.tracking_system:
-                tracked_frame = core.state.tracking_system._draw_tracks(frame.copy(), tracked_objects, step_map=step_map)
-                core.state._last_tracked_frame = tracked_frame
-                with _realtime_push_frame_lock:
-                    _, buffer = cv2.imencode('.jpg', tracked_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                    _realtime_last_pushed_frame = buffer.tobytes()
-        except Exception:
-            pass
-        
-        core.state.realtime_status.update({
-            'is_running': True,
-            'current_step': current_step,
-            'confidence': confidence,
-            'fps': fps,
-            'infer_ms': infer_ms,
-            'track_id': track_id,
-            'updated_at': int(time.time()),
-        })
-    
-    print("推理线程结束")
-
-
-def _realtime_analysis_loop():
-    """实时分析主循环：启动采集和推理线程"""
-    try:
-        capture_thread = threading.Thread(target=_realtime_capture_loop)
-        capture_thread.daemon = True
-        capture_thread.start()
-        
-        inference_thread = threading.Thread(target=_realtime_inference_loop)
-        inference_thread.daemon = True
-        inference_thread.start()
-        
-        capture_thread.join()
-        inference_thread.join()
-        
-        print("实时分析结束")
-    except Exception as e:
-        print(f"实时分析循环异常: {e}")
-        core.state.realtime_status['error'] = str(e)
-    finally:
-        core.state.realtime_status['is_running'] = False
-
-
-@bp.route('/realtime/start', methods=['POST'])
-def start_realtime():
-    """启动实时分析"""
-    global _realtime_thread, _realtime_stop_event
-    
-    try:
-        if core.state.realtime_status.get('is_running'):
-            return jsonify({'success': True, 'message': '实时分析已在运行'})
-        
-        data = request.get_json() or {}
-        
-        rtsp_url = data.get('rtsp_url', '')
-        video_path = data.get('video_path', '')
-        ip = data.get('ip', '')
-        port = data.get('port', '554')
-        username = data.get('username', 'admin')
-        password = data.get('password', '')
-        
-        if rtsp_url:
-            core.state.realtime_status['rtsp_url'] = rtsp_url
-            core.state.realtime_status['source_type'] = 'rtsp'
-        elif ip:
-            path = data.get('path', '/Streaming/Channels/101')
-            rtsp_url = f"rtsp://{username}:{password}@{ip}:{port}{path}"
-            core.state.realtime_status['rtsp_url'] = rtsp_url
-            core.state.realtime_status['source_type'] = 'rtsp'
-        elif video_path:
-            core.state.realtime_status['video_path'] = video_path
-            core.state.realtime_status['source_type'] = 'video'
-        else:
-            core.state.realtime_status['source_type'] = 'rtsp'
-            rtsp_url = f"rtsp://{Config.RTSP_USERNAME}:{Config.RTSP_PASSWORD}@{Config.RTSP_IP}:{Config.RTSP_PORT}{Config.RTSP_PATH}"
-            core.state.realtime_status['rtsp_url'] = rtsp_url
-            print(f"使用默认RTSP摄像头: {Config.RTSP_IP}:{Config.RTSP_PORT}")
-        
-        core.state.realtime_status.update({
-            'is_running': True,
-            'current_step': 'Idle',
-            'confidence': 0,
-            'fps': 0,
-            'infer_ms': 0,
-            'track_id': None,
-            'error': None,
-            'updated_at': int(time.time()),
-            'step_history': []
-        })
-        
-        _realtime_stop_event.clear()
-        _realtime_thread = threading.Thread(target=_realtime_analysis_loop, daemon=True)
-        _realtime_thread.start()
-        
-        print("实时分析已启动")
-        return jsonify({'success': True, 'message': '实时分析已启动'})
-    
-    except Exception as e:
-        print(f"启动实时分析失败: {e}")
-        core.state.realtime_status['error'] = str(e)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@bp.route('/realtime/stop', methods=['POST'])
-def stop_realtime():
-    """停止实时分析"""
-    global _realtime_stop_event, _realtime_cap
-    
-    try:
-        _realtime_stop_event.set()
-        
-        if _realtime_cap is not None:
-            _realtime_cap.release()
-            _realtime_cap = None
-        
-        core.state.realtime_status.update({
-            'is_running': False,
-            'current_step': 'Idle',
-            'confidence': 0,
-            'fps': 0,
-            'infer_ms': 0,
-            'track_id': None,
-            'error': None,
-            'updated_at': int(time.time()),
-        })
-        
-        print("实时分析已停止")
-        return jsonify({'success': True, 'message': '实时分析已停止'})
-    
-    except Exception as e:
-        print(f"停止实时分析失败: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@bp.route('/realtime/status', methods=['GET'])
-def get_realtime_status():
-    """获取实时分析状态"""
-    try:
-        status = core.state.realtime_status.copy()
-        status['success'] = True
-        return jsonify(status)
-    except Exception as e:
-        print(f"获取实时状态失败: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@bp.route('/realtime/stream', methods=['GET'])
-def realtime_stream():
-    """实时分析视频流"""
-    
-    def gen():
-        last_push_time = 0
-        
-        while not _realtime_stop_event.is_set():
-            now = time.time()
-            
-            if now - last_push_time < _realtime_push_interval:
-                time.sleep(0.005)
-                continue
-            
-            frame_bytes = None
-            
-            with _realtime_push_frame_lock:
-                if _realtime_last_pushed_frame is not None:
-                    frame_bytes = _realtime_last_pushed_frame
-            
-            if frame_bytes is None:
-                frame = None
-                with _realtime_frame_lock:
-                    if core.state._last_tracked_frame is not None:
-                        frame = core.state._last_tracked_frame.copy()
-                    elif core.state._last_frame is not None:
-                        frame = core.state._last_frame.copy()
-                
-                if frame is None:
-                    time.sleep(0.01)
-                    continue
-                
-                try:
-                    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                    if ret:
-                        frame_bytes = buffer.tobytes()
-                except Exception as e:
-                    print(f"视频流编码异常: {e}")
-                    time.sleep(0.01)
-                    continue
-            
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            
-            last_push_time = now
-    
-    return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
