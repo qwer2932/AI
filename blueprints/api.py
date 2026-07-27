@@ -271,6 +271,17 @@ def _realtime_inference_loop():
             'updated_at': int(time.time()),
         })
 
+        # 更新步骤链状态（用于前端步骤链显示）
+        step_for_chain = current_step if current_step != 'Idle' else None
+        print(f"【步骤链】检测到步骤: {step_for_chain}, 当前步骤: {current_step}, 帧号: {frame_count}")
+        
+        try:
+            core.state.update_step_chain(step_for_chain, frame_count=frame_count)
+            sc = core.state.step_chain
+            print(f"【步骤链更新成功】当前步骤={sc['current_step']}, 当前索引={sc['current_index']}, 常亮索引={sc['max_active_index']}")
+        except Exception as e:
+            print(f"【步骤链更新失败】错误: {e}")
+
     print("推理线程结束")
 
 
@@ -298,6 +309,18 @@ def _realtime_analysis_loop():
 def get_realtime_status():
     _ensure_realtime_started()
     return jsonify(core.state.realtime_status)
+
+@bp.route('/realtime/step_chain', methods=['GET'])
+def get_realtime_step_chain():
+    return jsonify({
+        'success': True,
+        **core.state.step_chain
+    })
+
+@bp.route('/realtime/step_chain/reset', methods=['POST'])
+def reset_realtime_step_chain():
+    core.state.reset_step_chain()
+    return jsonify({'success': True})
 
 @bp.route('/realtime/stream', methods=['GET'])
 def realtime_stream():

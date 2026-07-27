@@ -42,6 +42,7 @@ step_chain = {
     'cycle_frame_counts': [0] * 6,             # 当前循环中各步已累计帧数
     'step_completed_in_cycle': [False] * 6,    # 当前循环中各步是否已完成
     'step_started_at': [0] * 6,                # 各步本次循环起始时间戳（0=未开始）
+    'max_active_index': -1,                    # 当前循环中已激活过的最高步骤索引（用于常亮）
     'last_step_change_at': 0,                  # 上次步骤变化时间戳
     'last_step_change_frame': 0,               # 上次步骤变化时的帧号
     'frame_count': 0,                          # 步骤链累计处理帧数
@@ -61,6 +62,7 @@ def reset_step_chain():
     step_chain['cycle_frame_counts'] = [0] * 6
     step_chain['step_completed_in_cycle'] = [False] * 6
     step_chain['step_started_at'] = [0] * 6
+    step_chain['max_active_index'] = -1
     step_chain['last_step_change_at'] = 0
     step_chain['last_step_change_frame'] = 0
     step_chain['frame_count'] = 0
@@ -99,18 +101,35 @@ def update_step_chain(new_step, frame_count=None, timestamp=None):
         step_chain['step_frame_counts'][idx] += 1
         if step_chain['in_cycle']:
             step_chain['cycle_frame_counts'][idx] += 1
+        
+        # 更新 max_active_index：只要检测到步骤就更新，哪怕只有1帧（用于常亮）
+        # 确保当前步骤及之前的步骤都常亮
+        if idx > step_chain['max_active_index']:
+            step_chain['max_active_index'] = idx
+        # 如果当前步骤索引小于max_active_index，说明之前已经激活过更高步骤，
+        # 但当前步骤也需要被标记为已激活（虽然max_active_index不需要更新）
+        # 由于前端使用 idx <= max_active_index 判断常亮，这里只需要确保max_active_index正确即可
 
     prev = step_chain['last_step']
 
     # 步骤切换检测（仅在确实发生变化时记录）
     if new_step != prev and new_step in STEP_CHAIN_ORDER:
-        # 循环完成：上一个步骤是 RobotReturn，新步骤是 RobotPick
-        if prev == 'RobotReturn' and new_step == 'RobotPick':
+        # 检测到第一个步骤开始（RobotPick），清空所有状态重新开始循环
+        if new_step == 'RobotPick':
             step_chain['cycle_count'] += 1
-            # 新循环开始：重置当前循环的累计
             step_chain['cycle_frame_counts'] = [0] * 6
             step_chain['step_completed_in_cycle'] = [False] * 6
             step_chain['step_started_at'] = [0] * 6
+            step_chain['max_active_index'] = -1
+            print(f"【循环重置】检测到第一个步骤开始，新循环 #{step_chain['cycle_count']}")
+        
+        # 检测到最后一个步骤结束（上一个是 RobotReturn），清空所有状态
+        elif prev == 'RobotReturn':
+            step_chain['cycle_frame_counts'] = [0] * 6
+            step_chain['step_completed_in_cycle'] = [False] * 6
+            step_chain['step_started_at'] = [0] * 6
+            step_chain['max_active_index'] = -1
+            print(f"【循环重置】检测到最后一个步骤结束，等待新循环")
 
         # 标记上一步在当前循环中已完成（如果是同一循环内）
         if prev in STEP_CHAIN_ORDER and step_chain['in_cycle']:
