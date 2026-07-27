@@ -51,6 +51,8 @@ NETDEV_DTYPE_IPC = 1
 DEFAULT_HTTP_PORT = 80
 NETDEV_MEDIADIR_VIDEO = 0x01
 NETDEV_STREAM_MAIN = 0x01
+NETDEV_STREAM_SUB = 0x02
+NETDEV_STREAM_EXTRA = 0x04
 NETDEV_TRANSPROTOCOL_RTPTCP = 1
 
 # ---------------------------- 结构体 ----------------------------
@@ -133,7 +135,7 @@ if UNIVIEW_DLL is not None:
 
 # ---------------------------- 取流类（独立脚本稳定版本）----------------------------
 class UniviewStreamCapture:
-    def __init__(self):
+    def __init__(self, stream_type=NETDEV_STREAM_MAIN):
         self.camera_name = UNIVIEW_CAMERA_CONFIG["name"]
         self.login_id = None
         self.play_id = None
@@ -143,6 +145,7 @@ class UniviewStreamCapture:
         self._stop_event = threading.Event()
         self._decode_cb_ref = None
         self._frame_count = 0
+        self._stream_type = stream_type
 
         if UNIVIEW_DLL is None:
             raise RuntimeError("宇视SDK未加载")
@@ -179,7 +182,10 @@ class UniviewStreamCapture:
                 return
 
             self._frame_count += 1
-            if self._frame_count % 30 == 1:
+            if self._frame_count == 1:
+                print(f"=== 宇视SDK实际分辨率: {width}x{height}, 比例: {width/height:.2f} ===")
+                logger.info(f"宇视SDK实际分辨率: {width}x{height}, 比例: {width/height:.2f}")
+            if self._frame_count % 60 == 0:
                 logger.info(f"宇视回调帧 #{self._frame_count}: {width}x{height}")
 
             # 获取 Y、U、V 平面指针
@@ -202,7 +208,7 @@ class UniviewStreamCapture:
             u_plane = np.frombuffer(u_data, dtype=np.uint8).reshape((height // 2, data.dwLineSize[1]))
             v_plane = np.frombuffer(v_data, dtype=np.uint8).reshape((height // 2, data.dwLineSize[2]))
 
-            # 裁剪到实际宽
+            # 裁剪到实际宽（去除行尾填充，非画面裁剪）
             y_plane = y_plane[:, :width]
             u_plane = u_plane[:, :width//2]
             v_plane = v_plane[:, :width//2]
@@ -222,7 +228,7 @@ class UniviewStreamCapture:
 
         preview_info = NETDEV_PREVIEWINFO_S()
         preview_info.dwChannelID = 0
-        preview_info.dwStreamType = NETDEV_STREAM_MAIN
+        preview_info.dwStreamType = self._stream_type
         preview_info.dwLinkMode = NETDEV_TRANSPROTOCOL_RTPTCP
         preview_info.hPlayWnd = None
         preview_info.dwFluency = 0
@@ -233,6 +239,10 @@ class UniviewStreamCapture:
         preview_info.dwTransType = 0
         preview_info.dwStreamProtocol = 0
         preview_info.bLoginDataByOpenAPI = False
+
+        stream_type_name = "主码流" if self._stream_type == NETDEV_STREAM_MAIN else "子码流" if self._stream_type == NETDEV_STREAM_SUB else "第三码流"
+        print(f"=== 尝试使用{stream_type_name} (类型: {self._stream_type}) ===")
+        logger.info(f"尝试使用{stream_type_name} (类型: {self._stream_type})")
 
         play_id = UNIVIEW_DLL.NETDEV_RealPlay(self.login_id, byref(preview_info), None, None)
         if play_id is None or play_id == 0:
@@ -278,14 +288,15 @@ class UniviewStreamCapture:
 _stream_capture = None
 _stream_capture_lock = threading.Lock()
 
-def get_uniview_stream():
+def get_uniview_stream(stream_type=NETDEV_STREAM_MAIN):
     global _stream_capture
     if UNIVIEW_DLL is None:
         return None
     with _stream_capture_lock:
         if _stream_capture is None:
             try:
-                _stream_capture = UniviewStreamCapture()
+                _stream_capture = UniviewStreamCapture(stream_type=stream_type)
+                print(f"=== 宇视SDK初始化完成，使用码流类型: {stream_type} (0x01=主码流, 0x02=子码流, 0x04=第三码流) ===")
             except Exception as e:
                 logger.error(f"创建宇视流捕获失败: {e}")
                 _stream_capture = None
