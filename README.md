@@ -81,18 +81,19 @@ project_root/
 │   └── api.py                     # 所有 API 接口
 ├── service/                       # 业务逻辑服务
 │   ├── analysis_service.py        # 追踪分析核心
-│   └── balance_service.py         # 线平衡计算
+│   ├── balance_service.py         # 线平衡计算
+│   └── UniviewService.py          # 宇视摄像机视频
 ├── core/                          # 核心代码
 │   ├── state.py                   # 全局状态变量
 │   ├── utils.py                   # 工具函数
 │   ├── tracking_system.py         # YOLO+DeepSORT 追踪系统
 │   └── step_inference.py          # 装配步骤推理
-├── database.py                    # 数据库管理器
+├── models.py                      # 数据库管理器
 ├── config.py                      # 配置类
 ├── exts.py                        # 扩展初始化（CORS）
 ├── app.py                         # 应用工厂 + 所有初始化 + 启动
 ├── best.pt                        # 模型权重
-├── static/                        # 前端静态文件
+├── lib/                           # dll文件目录
 ├── uploads/                       # 视频上传目录
 └── results/                       # 分析结果目录
 ```

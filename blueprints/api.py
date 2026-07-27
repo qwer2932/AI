@@ -110,8 +110,6 @@ def _realtime_capture_loop():
                     with _realtime_frame_lock:
                         core.state._last_frame = frame
                         _frame_counter += 1
-                        if _frame_counter % 30 == 0:
-                            print(f"采集到宇视帧 #{_frame_counter}, 尺寸: {frame.shape}")
                 else:
                     time.sleep(0.001)
             return
@@ -136,8 +134,6 @@ def _realtime_capture_loop():
             with _realtime_frame_lock:
                 core.state._last_frame = frame.copy()
                 _frame_counter += 1
-                if _frame_counter % 30 == 0:
-                    print(f"采集到OpenCV帧 #{_frame_counter}, 尺寸: {frame.shape}")
         else:
             time.sleep(0.01)
 
@@ -255,8 +251,6 @@ def _realtime_inference_loop():
                 _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
                 with _realtime_push_frame_lock:
                     _realtime_last_pushed_frame = buffer.tobytes()
-                if frame_count % 30 == 1:
-                    print(f"编码原始帧成功 #{frame_count}, 大小: {len(_realtime_last_pushed_frame)} 字节")
             except Exception as e2:
                 print(f"编码完全失败: {e2}")
 
@@ -303,26 +297,18 @@ def get_realtime_status():
 def realtime_stream():
     _ensure_realtime_started()
     def gen():
-        print("=== 流生成器启动 ===")  # 强制输出
         frame_count = 0
         while not _realtime_stop_event.is_set():
-            # 每 10 次循环打印一次，避免刷屏
-            if frame_count % 10 == 0:
-                print(f"循环中, frame_count={frame_count}, stop_event={_realtime_stop_event.is_set()}")
             time.sleep(_realtime_push_interval)
             frame_bytes = None
             with _realtime_push_frame_lock:
                 if _realtime_last_pushed_frame is not None:
                     frame_bytes = _realtime_last_pushed_frame
             if frame_bytes is None:
-                if frame_count % 10 == 0:
-                    print("流生成器: frame_bytes is None")
                 continue
             frame_count += 1
-            print(f"发送帧 #{frame_count}, 大小: {len(frame_bytes)}")
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        print("=== 流生成器退出（stop_event set） ===")
+                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
     # ==================== 原有业务路由 ====================
 

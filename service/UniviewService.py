@@ -169,7 +169,6 @@ class UniviewStreamCapture:
         logger.info(f"宇视摄像头登录成功: {self.camera_name}")
 
     def _decode_callback(self, play_handle, pstPictureData, lpUser):
-        print(">>> 解码回调触发 <<<")
         if not pstPictureData:
             return
         try:
