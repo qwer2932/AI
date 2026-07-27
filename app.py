@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
-# 修复 Windows 控制台编码
+import signal
+import threading
+
 if sys.platform == 'win32':
     try:
         import io
@@ -15,44 +17,60 @@ from flask import Flask
 from config import Config
 from exts import cors
 from core.utils import create_directories
-# 不再启动时初始化追踪系统
-# from service.analysis_service import init_tracking_system as _init_tracking
 from blueprints.main import bp as main_bp
 from blueprints.api import bp as api_bp
+
+shutdown_event = threading.Event()
 
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
 
-    # 设置时区
     os.environ['TZ'] = app.config.get('TZ', 'Asia/Shanghai')
 
-    # 初始化 CORS
     cors.init_app(app, resources={
         r"/api/*": {"origins": "*"},
         r"/results/*": {"origins": "*"},
         r"/video/*": {"origins": "*"}
     })
 
-    # 创建必要目录（uploads, results）
     create_directories(app)
 
-    # 不在此处初始化追踪系统，改为在第一次分析时懒加载
-    # with app.app_context():
-    #     _init_tracking()   # 注释掉
-
-    # 注册蓝图
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp)
 
     return app
 
+def handle_shutdown(signum=None, frame=None):
+    print("\n收到终止信号，正在关闭服务...")
+    
+    shutdown_event.set()
+    
+    try:
+        from blueprints.api import _reset_realtime_state
+        _reset_realtime_state()
+    except Exception as e:
+        print(f"重置实时状态失败: {e}")
+    
+    print("服务已关闭")
+    os._exit(0)
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    
     from core.utils import get_local_ip
     app = create_app()
     local_ip = get_local_ip()
-    port = 5000
+    port = 5003
+    
     print("=" * 60)
     print("AI视频追踪分析系统")
     print(f"访问地址: http://{local_ip}:{port}")
-    app.run(host='0.0.0.0', port=5003, debug=False)  
+    print("按 Ctrl+C 停止服务")
+    print("=" * 60)
+    
+    try:
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except KeyboardInterrupt:
+        handle_shutdown()
