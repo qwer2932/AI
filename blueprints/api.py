@@ -242,8 +242,6 @@ def _realtime_inference_loop():
                 with _realtime_push_frame_lock:
                     _, buffer = cv2.imencode('.jpg', tracked_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
                     _realtime_last_pushed_frame = buffer.tobytes()
-                    if frame_count % 30 == 1:
-                        print(f"编码帧成功 #{frame_count}, 大小: {len(_realtime_last_pushed_frame)} 字节")
         except Exception as e:
             print(f"编码帧失败: {e}")
             # 回退到原始帧（不加框）
