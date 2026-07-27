@@ -36,6 +36,7 @@ def create_app(config_class=Config):
 
     create_directories(app)
 
+    # 注册蓝图
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp)
 
@@ -66,7 +67,6 @@ if __name__ == '__main__':
     
     print("=" * 60)
     print("AI视频追踪分析系统")
-    print(f"访问地址: http://{local_ip}:{port}")
     print("按 Ctrl+C 停止服务")
     print("=" * 60)
     
