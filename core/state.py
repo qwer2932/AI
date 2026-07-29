@@ -30,6 +30,7 @@ realtime_status = {
     'completed_steps': 0,
     'total_cycles': 0,
     'compliance_rate': 0.0,
+    'cycle_times': [],
 }
 
 # 装配步骤顺序（6 步真实视频驱动的步骤链）

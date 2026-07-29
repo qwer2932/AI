@@ -278,13 +278,27 @@ def _realtime_inference_loop():
         # ========== 统计标准化执行符合率 ==========
         for pid, step in step_map.items():
             if pid not in _person_context:
-                _person_context[pid] = {'seen': set(), 'cycles': 0, 'last_step': None}
+                _person_context[pid] = {'seen': set(), 'cycles': 0, 'last_step': None, 'last_robotpick_time': None}
             ctx = _person_context[pid]
 
             if step is not None:
                 # 只有步骤发生变化时才处理
                 if step != ctx['last_step']:
                     if step == 'RobotPick':
+                        now = time.time()
+                        last_time = ctx.get('last_robotpick_time')
+                        if last_time is not None:
+                            duration = now - last_time
+                            # 当前循环编号 = 即将增加的循环总数（+1）
+                            cycle_number = core.state.realtime_status.get('total_cycles', 0) + 1
+                            history = core.state.realtime_status.get('cycle_times', [])
+                            history.append({'cycle_number': cycle_number, 'duration': round(duration, 1)})
+                            # 保留最多 20 条
+                            if len(history) > 20:
+                                history.pop(0)
+                            core.state.realtime_status['cycle_times'] = history
+                        ctx['last_robotpick_time'] = now
+
                         # 每次 RobotPick 都视为新循环开始
                         ctx['cycles'] += 1
                         # 清空已见步骤集合，开始新循环
@@ -369,7 +383,10 @@ def ensure_started():
 
 def get_status():
     """获取实时状态（包含统计）"""
-    return core.state.realtime_status
+    status = core.state.realtime_status.copy()
+    if 'cycle_times' in status:
+        status['cycle_times'] = list(reversed(status['cycle_times']))  # 最新在前
+    return status
 
 def get_step_chain_status():
     """获取步骤链状态"""
