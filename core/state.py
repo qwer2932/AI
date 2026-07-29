@@ -24,7 +24,12 @@ realtime_status = {
     'track_id': None,
     'error': None,
     'updated_at': 0,
-    'step_history': []
+    'step_history': [],
+    'source_type': 'camera',
+    'camera_index': 0,
+    'completed_steps': 0,
+    'total_cycles': 0,
+    'compliance_rate': 0.0,
 }
 
 # 装配步骤顺序（6 步真实视频驱动的步骤链）
