@@ -35,6 +35,54 @@ except ImportError:
 
 bp = Blueprint('api', __name__, url_prefix='/api')
 
+
+def _reset_realtime_state():
+    """重置实时状态（服务关闭时调用）"""
+    global _realtime_auto_started, _realtime_thread, _realtime_stop_event, _realtime_cap
+    try:
+        # 停止实时采集和分析线程
+        _realtime_stop_event.set()
+
+        # 等待线程结束（最多3秒）
+        if _realtime_thread is not None and _realtime_thread.is_alive():
+            _realtime_thread.join(timeout=3)
+            print("实时线程已停止")
+
+        # 释放视频采集资源
+        if _realtime_cap is not None:
+            try:
+                _realtime_cap.release()
+                print("视频采集资源已释放")
+            except Exception as e:
+                print(f"释放视频采集资源失败: {e}")
+            _realtime_cap = None
+
+        # 重置实时状态
+        core.state.realtime_status['is_running'] = False
+        core.state.realtime_status['current_step'] = 'Idle'
+        core.state.realtime_status['step_history'] = []
+        core.state.realtime_status['error'] = None
+        core.state.realtime_status['updated_at'] = int(time.time())
+
+        # 重置状态标志
+        _realtime_auto_started = False
+        _realtime_thread = None
+
+        # 重置 step_chain
+        core.state.step_chain['current_index'] = -1
+        core.state.step_chain['current_step'] = None
+        core.state.step_chain['last_step'] = None
+        core.state.step_chain['in_cycle'] = False
+        core.state.step_chain['step_frame_counts'] = [0] * 6
+        core.state.step_chain['cycle_frame_counts'] = [0] * 6
+
+        print("实时状态已重置")
+        logger.info("实时状态已重置")
+    except Exception as e:
+        print(f"重置实时状态异常: {e}")
+        logger.error(f"重置实时状态异常: {e}")
+
+
 # ==================== 实时视频流相关 ====================
 _realtime_auto_started = False
 _realtime_thread = None
@@ -129,13 +177,18 @@ def _realtime_capture_loop():
         return
 
     while not _realtime_stop_event.is_set():
-        ret, frame = _realtime_cap.read()
-        if ret:
+        # 使用 grab() + retrieve() 模式，以便在帧之间检查停止事件
+        if not _realtime_cap.grab():
+            time.sleep(0.01)
+            continue
+        # 检查是否需要停止
+        if _realtime_stop_event.is_set():
+            break
+        ret, frame = _realtime_cap.retrieve()
+        if ret and frame is not None:
             with _realtime_frame_lock:
                 core.state._last_frame = frame.copy()
                 _frame_counter += 1
-        else:
-            time.sleep(0.01)
 
     if _realtime_cap:
         _realtime_cap.release()
@@ -202,6 +255,10 @@ def _realtime_inference_loop():
                 # 检测 + 追踪
                 _, _, tracked_objects = core.state.tracking_system.detect_and_track(frame)
 
+                # 检查是否需要停止
+                if _realtime_stop_event.is_set():
+                    break
+
                 # 步骤推理
                 if step_inference and tracked_objects:
                     step_dets = []
@@ -233,6 +290,9 @@ def _realtime_inference_loop():
                             confidence = float(obj['confidence'])
                             track_id = tid
                     break
+
+        # 更新步骤链
+        core.state.update_step_chain(current_step if current_step != 'Idle' else None, frame_count=frame_count)
 
         # 绘制追踪框和步骤，编码为 JPEG
         try:
@@ -289,7 +349,72 @@ def _realtime_analysis_loop():
 @bp.route('/realtime/status', methods=['GET'])
 def get_realtime_status():
     _ensure_realtime_started()
-    return jsonify(core.state.realtime_status)
+    # 返回实时状态 + 步骤链关键信息
+    status = core.state.realtime_status.copy()
+    step_chain = core.state.step_chain
+    status['success'] = True
+    status['step_chain_current'] = step_chain.get('current_step')
+    status['step_chain_index'] = step_chain.get('current_index', -1)
+    status['step_chain_cycle'] = step_chain.get('cycle_count', 0)
+    status['step_chain_in_cycle'] = step_chain.get('in_cycle', False)
+    status['step_chain_last_step'] = step_chain.get('last_step')
+    return jsonify(status)
+
+@bp.route('/realtime/step_chain', methods=['GET'])
+def get_step_chain():
+    """获取完整的步骤链状态"""
+    _ensure_realtime_started()
+    # 返回步骤链的可读版本
+    step_chain = core.state.step_chain
+    
+    # 直接使用 state.py 中维护的 max_active_index（用于常亮显示）
+    max_active_index = step_chain.get('max_active_index', -1)
+    
+    return jsonify({
+        'success': True,
+        'order': step_chain['order'],
+        'current_index': step_chain['current_index'],
+        'current_step': step_chain['current_step'],
+        'last_step': step_chain['last_step'],
+        'cycle_count': step_chain['cycle_count'],
+        'in_cycle': step_chain['in_cycle'],
+        'step_frame_counts': step_chain['step_frame_counts'],
+        'cycle_frame_counts': step_chain['cycle_frame_counts'],
+        'step_completed_in_cycle': step_chain['step_completed_in_cycle'],
+        'max_active_index': max_active_index,
+        'frame_count': step_chain['frame_count'],
+        'step_history': step_chain['step_history'][-50:],  # 最近50条记录
+        'updated_at': step_chain['updated_at'],
+    })
+
+
+@bp.route('/realtime/step_chain/reset', methods=['POST'])
+def reset_step_chain():
+    """重置步骤链状态"""
+    core.state.reset_step_chain()
+    return jsonify({'success': True, 'message': '步骤链已重置'})
+
+
+@bp.route('/realtime/start', methods=['POST'])
+def start_realtime():
+    """启动实时监控"""
+    _ensure_realtime_started()
+    return jsonify({'success': True, 'message': '实时监控已启动'})
+
+
+@bp.route('/realtime/stop', methods=['POST'])
+def stop_realtime():
+    """停止实时监控"""
+    global _realtime_stop_event, _realtime_auto_started, _realtime_thread
+    _realtime_stop_event.set()
+    # 重置状态，允许下次重新启动
+    _realtime_auto_started = False
+    _realtime_thread = None
+    core.state.realtime_status['is_running'] = False
+    core.state.realtime_status['current_step'] = 'Idle'
+    core.state.realtime_status['step_history'] = []
+    return jsonify({'success': True, 'message': '实时监控已停止'})
+
 
 @bp.route('/realtime/stream', methods=['GET'])
 def realtime_stream():

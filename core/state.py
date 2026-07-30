@@ -42,11 +42,15 @@ step_chain = {
     'cycle_frame_counts': [0] * 6,             # 当前循环中各步已累计帧数
     'step_completed_in_cycle': [False] * 6,    # 当前循环中各步是否已完成
     'step_started_at': [0] * 6,                # 各步本次循环起始时间戳（0=未开始）
+    'max_active_index': -1,                    # 当前循环中已激活过的最高步骤索引（用于常亮）
     'last_step_change_at': 0,                  # 上次步骤变化时间戳
     'last_step_change_frame': 0,               # 上次步骤变化时的帧号
     'frame_count': 0,                          # 步骤链累计处理帧数
     'step_history': [],                        # 步骤切换历史 [{step, prev, frame, ts, cycle}, ...]
     'updated_at': 0,
+    # RobotReturn 门控标志：需要 HandTighten 和 ElectricGun 都出现过
+    'has_seen_handtighten': False,
+    'has_seen_electricgun': False,
 }
 
 
@@ -61,10 +65,14 @@ def reset_step_chain():
     step_chain['cycle_frame_counts'] = [0] * 6
     step_chain['step_completed_in_cycle'] = [False] * 6
     step_chain['step_started_at'] = [0] * 6
+    step_chain['max_active_index'] = -1
     step_chain['last_step_change_at'] = 0
     step_chain['last_step_change_frame'] = 0
     step_chain['frame_count'] = 0
     step_chain['step_history'] = []
+    # 重置 RobotReturn 门控标志
+    step_chain['has_seen_handtighten'] = False
+    step_chain['has_seen_electricgun'] = False
 
 
 def update_step_chain(new_step, frame_count=None, timestamp=None):
@@ -81,6 +89,7 @@ def update_step_chain(new_step, frame_count=None, timestamp=None):
         - 检测步骤切换：记录历史、更新 last_step
         - 检测循环完成：last_step == RobotReturn 且 new_step == RobotPick → cycle_count += 1
         - 第一个有效步骤出现时自动开启 in_cycle
+        - 更新 max_active_index 用于常亮显示
     """
     import time as _time
     if timestamp is None:
@@ -91,6 +100,18 @@ def update_step_chain(new_step, frame_count=None, timestamp=None):
     step_chain['frame_count'] = frame_count
     step_chain['updated_at'] = int(timestamp)
 
+    # RobotReturn 门控逻辑：只有在 HandTighten 和 ElectricGun 都出现过之后，RobotReturn 才有效
+    if new_step in ('HandTighten', 'ElectricGun', 'RobotReturn'):
+        if new_step == 'HandTighten':
+            step_chain['has_seen_handtighten'] = True
+        elif new_step == 'ElectricGun':
+            step_chain['has_seen_electricgun'] = True
+        elif new_step == 'RobotReturn':
+            if not (step_chain['has_seen_handtighten'] and step_chain['has_seen_electricgun']):
+                # 门控未通过，忽略 RobotReturn
+                new_step = None
+                print(f"【RobotReturn 门控】HandTighten={step_chain['has_seen_handtighten']}, ElectricGun={step_chain['has_seen_electricgun']}，忽略 RobotReturn")
+
     # 累计当前步帧数（仅对有效步骤）
     if new_step in STEP_CHAIN_ORDER:
         idx = STEP_CHAIN_ORDER.index(new_step)
@@ -99,18 +120,37 @@ def update_step_chain(new_step, frame_count=None, timestamp=None):
         step_chain['step_frame_counts'][idx] += 1
         if step_chain['in_cycle']:
             step_chain['cycle_frame_counts'][idx] += 1
+        
+        # 更新 max_active_index：只要检测到步骤就更新，用于常亮
+        if idx > step_chain['max_active_index']:
+            step_chain['max_active_index'] = idx
 
     prev = step_chain['last_step']
 
     # 步骤切换检测（仅在确实发生变化时记录）
     if new_step != prev and new_step in STEP_CHAIN_ORDER:
-        # 循环完成：上一个步骤是 RobotReturn，新步骤是 RobotPick
-        if prev == 'RobotReturn' and new_step == 'RobotPick':
+        # 检测到第一个步骤开始（RobotPick），清空所有状态重新开始循环
+        if new_step == 'RobotPick':
             step_chain['cycle_count'] += 1
-            # 新循环开始：重置当前循环的累计
             step_chain['cycle_frame_counts'] = [0] * 6
             step_chain['step_completed_in_cycle'] = [False] * 6
             step_chain['step_started_at'] = [0] * 6
+            step_chain['max_active_index'] = -1
+            # 重置 RobotReturn 门控标志
+            step_chain['has_seen_handtighten'] = False
+            step_chain['has_seen_electricgun'] = False
+            print(f"【循环重置】检测到第一个步骤开始，新循环 #{step_chain['cycle_count']}")
+        
+        # 检测到最后一个步骤结束（上一个是 RobotReturn），清空所有状态
+        elif prev == 'RobotReturn':
+            step_chain['cycle_frame_counts'] = [0] * 6
+            step_chain['step_completed_in_cycle'] = [False] * 6
+            step_chain['step_started_at'] = [0] * 6
+            step_chain['max_active_index'] = -1
+            # 重置 RobotReturn 门控标志
+            step_chain['has_seen_handtighten'] = False
+            step_chain['has_seen_electricgun'] = False
+            print(f"【循环重置】检测到最后一个步骤结束，等待新循环")
 
         # 标记上一步在当前循环中已完成（如果是同一循环内）
         if prev in STEP_CHAIN_ORDER and step_chain['in_cycle']:

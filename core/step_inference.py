@@ -176,6 +176,14 @@ class StepInference:
         x1, y1, x2, y2 = bbox
         return x1 <= x <= x2 and y1 <= y <= y2
 
+    def _bbox_intersect(self, bbox1, bbox2):
+        """判断两个边界框 [x1, y1, x2, y2] 是否有交集"""
+        x1_1, y1_1, x2_1, y2_1 = bbox1
+        x1_2, y1_2, x2_2, y2_2 = bbox2
+        x_overlap = max(0, min(x2_1, x2_2) - max(x1_1, x1_2))
+        y_overlap = max(0, min(y2_1, y2_2) - max(y1_1, y1_2))
+        return x_overlap > 0 and y_overlap > 0
+
     def _is_near(self, pos1, pos2, frame_shape):
         """判断两个位置是否足够近"""
         h, w = frame_shape[:2]
@@ -347,9 +355,23 @@ class StepInference:
                     self._current_step[pid] = "ElectricGun"
                     continue
 
+            # ========== 检查电枪是否在人物框右侧（条件A或B） ==========
+            gun_on_right_of_person = False
+            if guns:
+                person_bbox = person['bbox']
+                for gun in guns:
+                    gun_bbox = gun['bbox']
+                    gun_center = self._get_center(gun_bbox)
+                    intersects = self._bbox_intersect(gun_bbox, person_bbox)
+                    gun_on_right_center = gun_center[0] > person_pos[0]
+                    gun_entirely_right = gun_bbox[0] > person_bbox[2]
+                    if (intersects and gun_on_right_center) or gun_entirely_right:
+                        gun_on_right_of_person = True
+                        break
+
             # ========== HandTighten → ElectricGun 切换 ==========
             # 如果当前是 HandTighten，人开始向右移动 → 切换为 ElectricGun（人开始工作）
-            if current_step == "HandTighten" and person_moving_right and len(guns) > 0:
+            if current_step == "HandTighten" and person_moving_right and len(guns) > 0 and not gun_on_right_of_person:
                 self._electricgun_active[pid] = self.frame_count
                 self._electricgun_active_until[pid] = self.frame_count + self.ELECTRICGUN_DURATION  # 保留，但不会使用
                 result[pid] = "ElectricGun"
@@ -487,8 +509,23 @@ class StepInference:
                     else:
                         self._handtighten_stable_window[pid].clear()
 
+            # Step 4b: HandTighten 补充触发 - 电枪在人物框右侧（有/无交集）
+            if guns and detected_step is None and self._handtighten_cooldown[pid] == 0 and not eg_active:
+                if gun_on_right_of_person:
+                    detected_step = "HandTighten"
+                    handtighten_triggered_this_frame = True
+                    for gun in guns:
+                        gun_bbox = gun['bbox']
+                        gun_center = self._get_center(gun_bbox)
+                        if gun_center[0] > person_pos[0] or gun_bbox[0] > person['bbox'][2]:
+                            self._handtighten_gun_area[pid] = self._get_bbox_area(gun_bbox)
+                            break
+                    self._has_seen_handtighten[pid] = True
+                    self._handtighten_cooldown[pid] = self.HANDTIGHTEN_COOLDOWN
+                    self._handtighten_stable_window[pid].clear()
+
             # Step 5: ElectricGun - 若尚未激活，且满足缩小条件，触发激活
-            if not eg_active and detected_step is None and guns and persons and not self._in_robot_return_phase.get(pid, False):
+            if not eg_active and detected_step is None and guns and persons and not self._in_robot_return_phase.get(pid, False) and not gun_on_right_of_person:
                 gun_near_person = False
                 for gun in guns:
                     if self._is_near(person_pos, self._get_center(gun['bbox']), frame_shape):
